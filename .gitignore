@@ -1,0 +1,36 @@
+# Binaries
+main
+*.exe
+*.test
+*.out
+
+# Build
+/build/
+bin/
+
+# Vendor
+/vendor/
+
+# Logs
+*.log
+logs
+
+# IDE/Editor settings
+.vscode/
+.idea/
+*.swp
+
+# Dependency directories (if using Go modules)
+go.sum
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# .env
+/.env
+*.env
+
+
+
+

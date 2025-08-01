@@ -1,0 +1,54 @@
+# docker-compose.yml
+
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: amink
+      MYSQL_DATABASE: userdb
+      MYSQL_USER: user
+      MYSQL_PASSWORD: amink
+    ports:
+      - "3320:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app1:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8085:8082"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_USER: user
+      DB_PASS: amink
+      DB_NAME: userdb
+      DB_HOST: db
+      DB_PORT: 3306
+      RUN_MIGRATION: "true"
+
+  app2:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8086:8082"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_USER: user
+      DB_PASS: amink
+      DB_NAME: userdb
+      DB_HOST: db
+      DB_PORT: 3306
+      RUN_MIGRATION: "false"
