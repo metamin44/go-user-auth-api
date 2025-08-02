@@ -4,6 +4,7 @@ import (
 	"log"
 	"reg/config"
 	"reg/handler"
+	"reg/internal/metrics"
 	"reg/logger"
 	"reg/repository"
 	"reg/router"
@@ -37,6 +38,8 @@ func main() {
 	logger.InitLogger()
 	defer logger.Log.Sync()
 	logger.Log.Info("Application starting...")
+
+	metrics.Init()
 
 	// Load .env file
 	if err := godotenv.Load(); err != nil {

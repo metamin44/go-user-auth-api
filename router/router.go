@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	echoSwagger "github.com/swaggo/echo-swagger"
 )
@@ -18,6 +19,9 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config) *echo.Echo {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
+	e.Use(middle.MetricsMiddleware)
+
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	registerLimiter, err := middle.RateLimiter(cfg.RateLimit.Register)
 	if err != nil {
@@ -54,8 +58,8 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config) *echo.Echo {
 
 	auth := e.Group("/auth")
 	auth.Use(middle.JWTMiddleware(cfg))
-	auth.GET("/profile", h.Profile)
 
+	auth.GET("/profile", h.Profile)
 	auth.PUT("/update", h.UpdateUser)
 	auth.DELETE("/delete", h.DeleteUser)
 	auth.POST("/change-password", h.ChangePassword)
