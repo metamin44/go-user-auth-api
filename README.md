@@ -1,6 +1,6 @@
 # Go User Authentication API
 
-A modular user authentication system built in Go with Echo framework, JWT, MySQL, Docker, and advanced features like email password reset, RBAC, rate limiting, supports real email delivery, using `.env` configuration, HTML email templates and structured logging.
+A modular user authentication system built in Go with Echo framework, JWT, MySQL, Docker, and advanced features like email password reset, RBAC, rate limiting, supports real email delivery, using `.env` configuration, HTML email templates, structured logging, and Prometheus/Grafana for observability.
 
 ---
 
@@ -22,6 +22,7 @@ A modular user authentication system built in Go with Echo framework, JWT, MySQL
 - 🛠️ Environment configuration via `.env`  
 - 🚫 Rate limiting on `/register`, `/login`, and `/forgot-password`
 - ✅ Structured logging with Zap + Lumberjack rotation
+- 📊 Monitoring with Prometheus and Grafana
 
 ---
 
@@ -90,9 +91,11 @@ RATE_LIMIT_FORGOT_PASSWORD=3-M
 docker-compose up --build
 ```
 
-- App 1: [http://localhost:8085/swagger/index.html](http://localhost:8085/swagger/index.html)  
-- App 2: [http://localhost:8086/swagger/index.html](http://localhost:8086/swagger/index.html)  
+- App 1: First instance of the Go app [http://localhost:8085/swagger/index.html](http://localhost:8085/swagger/index.html)  
+- App 2: Second instance of the Go app [http://localhost:8086/swagger/index.html](http://localhost:8086/swagger/index.html)  
 - MySQL: Connect to `localhost:3320`
+- Prometheus 9091 Metrics collection and query engine
+- Grafana 3001 Dashboard and visualization UI
 
 ---
 
@@ -166,6 +169,41 @@ This project uses [Uber's Zap](https://github.com/uber-go/zap) for fast, structu
 
 ---
 
+## 📊 Monitoring with Prometheus & Grafana
+
+Prometheus
+
+Prometheus scrapes metrics from:
+
+app1:8082/metrics
+
+app2:8082/metrics
+
+
+Prometheus config (prometheus.yml):
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'apps'
+    static_configs:
+      - targets: ['app1:8082', 'app2:8082']
+
+Access Prometheus UI: 👉 http://localhost:9091
+
+
+---
+
+Grafana
+
+Login to Grafana: 👉 http://localhost:3001
+Username: admin
+Password: admin
+
+
+---
+
 ## 🧪 Unit Testing
 
 Example:
@@ -189,15 +227,36 @@ Swagger is available at:
 
 ---
 
+## 🐳 Docker Overview
+
+ docker-compose.yml includes:
+
+2 App Instances on different ports
+
+MySQL with userdb
+
+Prometheus scraping /metrics from each app
+
+Grafana dashboard for observability
+
+
+docker-compose down # Stop services
+docker-compose down -v # Stop & remove volumes
+
+---
+
 ## 🛠 Project Structure
 
 ```
 ├── config
+|__ docs
+|__ internal
+|    └─ metrics
 ├── handler
 |__logger
-│   └── logger
+│   └─ logger.go
 ├── logs
-│   └── app.log
+│   └─ app.log
 ├── middleware
 ├── model
 ├── repository
@@ -209,7 +268,7 @@ Swagger is available at:
 ├── main.go
 ├── go.mod / go.sum
 ├── .env (ignored)
-└── Dockerfile / docker-compose.yml
+└── Dockerfile / docker-compose.yml / prometheus.yml
 ```
 
 ---
