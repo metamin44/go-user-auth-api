@@ -16,7 +16,9 @@ import (
 func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.TokenUserRepository) *echo.Echo {
 	e := echo.New()
 
-	e.Use(middleware.Logger())
+	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: `time=${time_rfc3339} method=${method} path=${path} status=${status} latency=${latency_human} remote_ip=${remote_ip}` + "\n",
+	}))
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 	e.Use(middle.MetricsMiddleware)

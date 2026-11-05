@@ -2,8 +2,10 @@ package handler
 
 import (
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"errors"
+	"html/template"
 	"net/http"
 	"reg/config"
 	"reg/model"
@@ -20,6 +22,13 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+)
+
+//go:embed templates/reset_password.html
+var resetPasswordTemplate embed.FS
+
+var resetPasswordPage = template.Must(
+	template.ParseFS(resetPasswordTemplate, "templates/reset_password.html"),
 )
 
 type UserHandler struct {
@@ -1006,7 +1015,6 @@ func (h *UserHandler) PromoteToAdmin(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, echo.Map{"message": "user promoted to admin successfully"})
 }
-
 func (h *UserHandler) ShowResetPasswordPage(c echo.Context) error {
 	token := c.QueryParam("token")
 
@@ -1017,18 +1025,65 @@ func (h *UserHandler) ShowResetPasswordPage(c echo.Context) error {
 
 	token = strings.ReplaceAll(token, " ", "+")
 
-	_, err := tokenutil.ParseToken(
+	claims, err := tokenutil.ParseToken(
 		token,
 		h.Cfg.JWT.ResetKey,
 		tokenutil.TokenTypeReset,
 	)
 
 	if err != nil {
-		h.Logger.Warn("Invalid or expired reset token", zap.Error(err))
+		h.Logger.Warn(
+			"Reset token validation failed",
+			zap.Error(err),
+		)
 		return c.String(http.StatusBadRequest, "Invalid or expired token")
 	}
 
-	h.Logger.Info("Reset password page requested")
+	email, ok := claims["sub"].(string)
+	if !ok || email == "" {
+		return c.String(http.StatusBadRequest, "Invalid reset token subject")
+	}
 
-	return c.String(http.StatusOK, "Valid reset link")
+	user, err := h.Repo.GetUserByEmail(email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.String(http.StatusBadRequest, "Invalid or expired token")
+		}
+
+		h.Logger.Error(
+			"Failed to retrieve user during reset page request",
+			zap.Error(err),
+		)
+		return c.String(http.StatusInternalServerError, "Internal server error")
+	}
+	if user.ResetToken == nil || user.ResetTokenExpiry == nil {
+		h.Logger.Warn("Reset token data is missing in database")
+		return c.String(http.StatusBadRequest, "Invalid or expired token")
+	}
+
+	if *user.ResetToken != hashResetToken(token) {
+		h.Logger.Warn("Reset token hash does not match database")
+		return c.String(http.StatusBadRequest, "Invalid or expired token")
+	}
+
+	if time.Now().After(*user.ResetTokenExpiry) {
+		h.Logger.Warn(
+			"Reset token database expiration has passed",
+			zap.Time("expires_at", *user.ResetTokenExpiry),
+			zap.Time("current_time", time.Now()),
+		)
+		return c.String(http.StatusBadRequest, "Invalid or expired token")
+	}
+
+	h.Logger.Info("Valid password reset page requested")
+
+	c.Response().Header().Set("Cache-Control", "no-store")
+	c.Response().Header().Set("Referrer-Policy", "no-referrer")
+	c.Response().Header().Set("X-Content-Type-Options", "nosniff")
+
+	return resetPasswordPage.Execute(c.Response().Writer, struct {
+		Token string
+	}{
+		Token: token,
+	})
 }
