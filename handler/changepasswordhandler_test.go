@@ -14,7 +14,7 @@ import (
 func TestChangePassword(t *testing.T) {
 	e, handler := setup(t)
 
-	token := generateTestJWT(1) // simulate token for user ID 1
+	token := generateTestJWT(t, 1, handler.Cfg) // simulate token for user ID 1
 
 	tests := []struct {
 		name           string

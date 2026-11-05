@@ -1,6 +1,10 @@
 package repository
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -9,9 +13,11 @@ import (
 	"strings"
 	"time"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type UserRepo struct {
@@ -19,76 +25,148 @@ type UserRepo struct {
 	Logger *zap.Logger
 }
 
-func NewUserRepo(cfg *config.Config) (*UserRepo, error) {
-	var db *gorm.DB
-	var err error
+var (
+	ErrEmailAlreadyExists = errors.New("email already exists")
+	ErrPhoneAlreadyExists = errors.New("phone already exists")
+	ErrDuplicateEntry     = errors.New("duplicate entry")
+	ErrSessionNotFound    = errors.New("session not found")
+	ErrSessionRevoked     = errors.New("session has been revoked")
+	ErrSessionExpired     = errors.New("session has expired")
+	ErrRefreshTokenReuse  = errors.New("refresh token reuse detected")
+)
 
-	logger := zap.L() // get the global Zap logger (make sure it's initialized in main)
-	logger.Info("Hello from UserRepo constructor -test log")
+func NewUserRepo(cfg *config.Config) (*UserRepo, error) {
+	logger := zap.L()
 
 	dsn := cfg.DSN()
 
-	// Retry logic: try to connect up to 10 times with 3s delay
-	for i := 1; i <= 10; i++ {
+	const maxRetries = 5
+	const retryDelay = 2 * time.Second
+
+	const maxOpenConns = 10
+	const maxIdleConns = 5
+	const connMaxLifetime = 5 * time.Minute
+	const connMaxIdleTime = 1 * time.Minute
+
+	var db *gorm.DB
+	var err error
+
+	for i := 1; i <= maxRetries; i++ {
 		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+
 		if err == nil {
-			sqlDB, _ := db.DB()
-			if pingErr := sqlDB.Ping(); pingErr == nil {
-				logger.Info("✅ Connected to MySQL with GORM")
-				break
-			} else {
-				err = pingErr
+			var sqlDB *sql.DB
+
+			sqlDB, err = db.DB()
+
+			if err == nil {
+				sqlDB.SetMaxOpenConns(maxOpenConns)
+				sqlDB.SetMaxIdleConns(maxIdleConns)
+				sqlDB.SetConnMaxLifetime(connMaxLifetime)
+				sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
+
+				if pingErr := sqlDB.Ping(); pingErr != nil {
+					err = pingErr
+					_ = sqlDB.Close()
+					db = nil
+				} else {
+					logger.Info("Connected to MySQL with GORM")
+					break
+				}
 			}
 		}
 
-		logger.Warn("⏳ Attempt to connect to DB failed",
+		logger.Warn("Database connection attempt failed",
 			zap.Int("attempt", i),
 			zap.Error(err),
 		)
-		time.Sleep(3 * time.Second)
-	}
 
-	if err != nil {
-		logger.Error("❌ Could not connect to DB after retries", zap.Error(err))
-		return nil, fmt.Errorf("❌ could not connect to database after retries: %w", err)
-	}
-
-	// Auto-migrate User model
-	if os.Getenv("RUN_MIGRATION") == "true" {
-		logger.Info("Running auto migration for User model...")
-		if err := db.AutoMigrate(&model.User{}); err != nil {
-			logger.Fatal("❌ AutoMigration failed", zap.Error(err))
-		} else {
-			logger.Info("✅ AutoMigration completed successfully")
+		if i < maxRetries {
+			time.Sleep(retryDelay)
 		}
 	}
 
-	return &UserRepo{DB: db, Logger: logger}, nil
+	if err != nil {
+		return nil, fmt.Errorf(
+			"could not connect to database after %d attempts: %w",
+			maxRetries,
+			err,
+		)
+	}
+
+	if os.Getenv("RUN_MIGRATION") == "true" {
+		logger.Info("Running auto migration for User model")
+
+		if err := db.AutoMigrate(
+			&model.User{},
+			&model.UserSession{},
+		); err != nil {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+
+			return nil, fmt.Errorf("auto migration failed: %w", err)
+		}
+
+		logger.Info("AutoMigration completed successfully")
+	}
+
+	return &UserRepo{
+		DB:     db,
+		Logger: logger,
+	}, nil
+}
+
+// Close closes the underlying database connection.
+func (r *UserRepo) Close() error {
+	if r == nil || r.DB == nil {
+		return nil
+	}
+
+	sqlDB, err := r.DB.DB()
+	if err != nil {
+		return err
+	}
+
+	return sqlDB.Close()
 }
 
 func (r *UserRepo) CreateUser(user *model.User) error {
 	err := r.DB.Create(user).Error
 	if err != nil {
-		r.Logger.Error("❌ Failed to create user", zap.Error(err))
+		var mysqlErr *mysqlDriver.MySQLError
 
-		// Inspect raw error string
-		rawErr := err.Error()
-		if strings.Contains(rawErr, "Duplicate entry") {
-			if strings.Contains(rawErr, "uni_users_email") {
-				r.Logger.Warn("⚠️ Duplicate email detected", zap.String("email", user.Email))
-				return fmt.Errorf("email already exists")
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+			switch {
+			case strings.Contains(mysqlErr.Message, "uni_users_email"):
+				r.Logger.Warn(
+					"Duplicate email detected",
+					zap.String("email", user.Email),
+				)
+				return ErrEmailAlreadyExists
+
+			case strings.Contains(mysqlErr.Message, "uni_users_phone"):
+				r.Logger.Warn(
+					"Duplicate phone detected",
+					zap.String("phone", user.Phone),
+				)
+				return ErrPhoneAlreadyExists
+
+			default:
+				return ErrDuplicateEntry
 			}
-			if strings.Contains(rawErr, "uni_users_phone") {
-				r.Logger.Warn("⚠️ Duplicate phone detected", zap.String("phone", user.Phone))
-				return fmt.Errorf("phone already exists")
-			}
-			return fmt.Errorf("duplicate entry")
 		}
 
+		r.Logger.Error("Failed to create user", zap.Error(err))
 		return err
 	}
 
-	r.Logger.Info("✅ User created successfully", zap.Uint("user_id", user.ID), zap.String("email", user.Email))
+	r.Logger.Info(
+		"User created successfully",
+		zap.Uint("user_id", user.ID),
+	)
+
 	return nil
 }
 
@@ -126,46 +204,359 @@ func (r *UserRepo) GetUserByID(id uint) (*model.User, error) {
 	return &user, nil
 }
 
-func (r *UserRepo) UpdateUser(id uint, updates map[string]interface{}) error {
-	err := r.DB.Model(&model.User{}).Where("id = ?", id).Updates(updates).Error
-	if err != nil {
-		r.Logger.Error("Failed to update user", zap.Uint("user_id", id), zap.Any("updates", updates), zap.Error(err))
-		return err
+// UpdateUserProfile updates the user's name and phone.
+func (r *UserRepo) UpdateUserProfile(
+	id uint,
+	name string,
+	phone string,
+) error {
+	if id == 0 {
+		return errors.New("user ID is required")
 	}
 
-	r.Logger.Info("User updated successfully", zap.Uint("user_id", id), zap.Any("updates", updates))
+	result := r.DB.Model(&model.User{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"name":  name,
+			"phone": phone,
+		})
+
+	if result.Error != nil {
+		r.Logger.Error(
+			"Failed to update user profile",
+			zap.Uint("user_id", id),
+			zap.Error(result.Error),
+		)
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	r.Logger.Info(
+		"User profile updated successfully",
+		zap.Uint("user_id", id),
+	)
+
 	return nil
 }
 
+// DeleteUser deletes a user by ID.
 func (r *UserRepo) DeleteUser(id uint) error {
-	err := r.DB.Delete(&model.User{}, id).Error
-	if err != nil {
-		r.Logger.Error("Failed to delete user", zap.Uint("user_id", id), zap.Error(err))
-		return err
+	if id == 0 {
+		return errors.New("user ID is required")
 	}
 
-	r.Logger.Info("User deleted successfully", zap.Uint("user_id", id))
+	result := r.DB.Delete(&model.User{}, id)
+
+	if result.Error != nil {
+		r.Logger.Error(
+			"Failed to delete user",
+			zap.Uint("user_id", id),
+			zap.Error(result.Error),
+		)
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	r.Logger.Info(
+		"User deleted successfully",
+		zap.Uint("user_id", id),
+	)
+
+	return nil
+}
+
+// SavePasswordResetToken stores the hashed reset token and its expiration.
+func (r *UserRepo) SavePasswordResetToken(
+	id uint,
+	hashedToken string,
+	expiresAt time.Time,
+) error {
+	if id == 0 {
+		return errors.New("user ID is required")
+	}
+
+	if hashedToken == "" {
+		return errors.New("hashed reset token is required")
+	}
+
+	result := r.DB.Model(&model.User{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"reset_token":        hashedToken,
+			"reset_token_expiry": expiresAt,
+		})
+
+	if result.Error != nil {
+		r.Logger.Error(
+			"Failed to save password reset token",
+			zap.Uint("user_id", id),
+			zap.Error(result.Error),
+		)
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	r.Logger.Info(
+		"Password reset token saved",
+		zap.Uint("user_id", id),
+	)
+
 	return nil
 }
 
 func (r *UserRepo) UpdatePassword(id uint, hashedPassword string) error {
-	err := r.DB.Model(&model.User{}).Where("id = ?", id).Update("password", hashedPassword).Error
-	if err != nil {
-		r.Logger.Error("Failed to update password", zap.Uint("user_id", id), zap.Error(err))
-		return err
+	result := r.DB.Model(&model.User{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"password":      hashedPassword,
+			"token_version": gorm.Expr("token_version + 1"),
+		})
+
+	if result.Error != nil {
+		r.Logger.Error("Failed to update password",
+			zap.Uint("user_id", id),
+			zap.Error(result.Error),
+		)
+		return result.Error
 	}
 
-	r.Logger.Info("Password updated successfully", zap.Uint("user_id", id))
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	r.Logger.Info("Password updated and existing tokens revoked",
+		zap.Uint("user_id", id),
+	)
+
+	return nil
+}
+
+// CompletePasswordReset updates the password, clears reset data,
+// and revokes all existing access and refresh tokens.
+func (r *UserRepo) CompletePasswordReset(id uint, hashedPassword string) error {
+	result := r.DB.Model(&model.User{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"password":           hashedPassword,
+			"reset_token":        nil,
+			"reset_token_expiry": nil,
+			"token_version":      gorm.Expr("token_version + 1"),
+		})
+
+	if result.Error != nil {
+		r.Logger.Error("Failed to complete password reset",
+			zap.Uint("user_id", id),
+			zap.Error(result.Error),
+		)
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	r.Logger.Info("Password reset completed and existing tokens revoked",
+		zap.Uint("user_id", id),
+	)
+
 	return nil
 }
 
 func (r *UserRepo) PromoteUserToAdmin(userID uint) error {
-	err := r.DB.Model(&model.User{}).Where("id = ?", userID).Update("role", "admin").Error
+	result := r.DB.Model(&model.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"role":          "admin",
+			"token_version": gorm.Expr("token_version + 1"),
+		})
+
+	if result.Error != nil {
+		r.Logger.Error(
+			"Failed to promote user to admin",
+			zap.Uint("user_id", userID),
+			zap.Error(result.Error),
+		)
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	r.Logger.Info(
+		"User promoted to admin and existing tokens revoked",
+		zap.Uint("user_id", userID),
+	)
+
+	return nil
+}
+
+// GetTokenVersion returns the current token version of a user.
+func (r *UserRepo) GetTokenVersion(userID uint) (uint64, error) {
+	var user model.User
+
+	err := r.DB.
+		Select("token_version").
+		First(&user, userID).Error
+
 	if err != nil {
-		r.Logger.Error("Failed to promote user to admin", zap.Uint("user_id", userID), zap.Error(err))
+		return 0, err
+	}
+
+	return user.TokenVersion, nil
+}
+
+func hashRefreshToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
+}
+
+func (r *UserRepo) CreateSession(
+	userID uint,
+	sessionID string,
+	refreshToken string,
+	expiresAt time.Time,
+) error {
+	if userID == 0 {
+		return errors.New("user ID is required")
+	}
+
+	if sessionID == "" || refreshToken == "" {
+		return errors.New("session ID and refresh token are required")
+	}
+
+	if !expiresAt.After(time.Now()) {
+		return errors.New("session expiration must be in the future")
+	}
+
+	session := model.UserSession{
+		UserID:           userID,
+		SessionID:        sessionID,
+		RefreshTokenHash: hashRefreshToken(refreshToken),
+		ExpiresAt:        expiresAt,
+	}
+
+	if err := r.DB.Create(&session).Error; err != nil {
+		r.Logger.Error(
+			"Failed to create user session",
+			zap.Uint("user_id", userID),
+			zap.Error(err),
+		)
 		return err
 	}
 
-	r.Logger.Info("User promoted to admin", zap.Uint("user_id", userID))
+	r.Logger.Info(
+		"User session created",
+		zap.Uint("user_id", userID),
+	)
+
+	return nil
+}
+
+func (r *UserRepo) RotateSession(
+
+	userID uint,
+	sessionID string,
+	oldRefreshToken string,
+	newRefreshToken string,
+	newExpiresAt time.Time,
+) error {
+	if userID == 0 || sessionID == "" ||
+		oldRefreshToken == "" || newRefreshToken == "" {
+		return errors.New("invalid session rotation parameters")
+	}
+
+	if !newExpiresAt.After(time.Now()) {
+		return errors.New("new session expiration must be in the future")
+	}
+	oldHash := hashRefreshToken(oldRefreshToken)
+	newHash := hashRefreshToken(newRefreshToken)
+
+	var tokenReuseDetected bool
+
+	err := r.DB.Transaction(func(tx *gorm.DB) error {
+		var session model.UserSession
+
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where(
+				"user_id = ? AND session_id = ?",
+				userID,
+				sessionID,
+			).
+			First(&session).Error
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrSessionNotFound
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if session.RevokedAt != nil {
+			return ErrSessionRevoked
+		}
+
+		if !session.ExpiresAt.After(time.Now()) {
+			return ErrSessionExpired
+		}
+
+		// Detect reuse of an already rotated refresh token.
+		if subtle.ConstantTimeCompare(
+			[]byte(session.RefreshTokenHash),
+			[]byte(oldHash),
+		) != 1 {
+			now := time.Now()
+
+			result := tx.Model(&session).
+				Update("revoked_at", &now)
+
+			if result.Error != nil {
+				return result.Error
+			}
+
+			if result.RowsAffected == 0 {
+				return ErrSessionNotFound
+			}
+
+			tokenReuseDetected = true
+
+			// Return nil so the transaction commits the revocation.
+			return nil
+		}
+
+		now := time.Now()
+
+		result := tx.Model(&session).Updates(map[string]interface{}{
+			"refresh_token_hash": newHash,
+			"expires_at":         newExpiresAt,
+			"last_used_at":       &now,
+		})
+
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if result.RowsAffected == 0 {
+			return ErrSessionNotFound
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if tokenReuseDetected {
+		return ErrRefreshTokenReuse
+	}
+
 	return nil
 }

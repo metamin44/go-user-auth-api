@@ -47,7 +47,7 @@ func TestRegister(t *testing.T) {
 
 		err := handler.Register(c)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.Contains(t, rec.Body.String(), "email already exists")
 	})
 
@@ -66,7 +66,7 @@ func TestRegister(t *testing.T) {
 
 		err := handler.Register(c)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.Contains(t, rec.Body.String(), "phone already exists")
 	})
 }

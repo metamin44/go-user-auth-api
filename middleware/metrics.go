@@ -2,6 +2,7 @@ package middle
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"reg/internal/metrics"
@@ -12,16 +13,39 @@ import (
 func MetricsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		start := time.Now()
+
 		err := next(c)
+
+		// Handle the error before reading the response status.
+		if err != nil {
+			c.Error(err)
+		}
+
 		duration := time.Since(start)
 
 		path := c.Path()
+		if path == "" {
+			path = "unmatched"
+		}
+
 		method := c.Request().Method
 		status := c.Response().Status
 
-		metrics.RequestCount.WithLabelValues(method, path, http.StatusText(status)).Inc()
-		metrics.RequestDuration.WithLabelValues(method, path).Observe(duration.Seconds())
+		if status == 0 {
+			status = http.StatusOK
+		}
 
-		return err
+		metrics.RequestCount.WithLabelValues(
+			method,
+			path,
+			strconv.Itoa(status),
+		).Inc()
+
+		metrics.RequestDuration.WithLabelValues(
+			method,
+			path,
+		).Observe(duration.Seconds())
+
+		return nil
 	}
 }

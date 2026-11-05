@@ -13,7 +13,7 @@ import (
 	echoSwagger "github.com/swaggo/echo-swagger"
 )
 
-func NewRouter(h *handler.UserHandler, cfg *config.Config) *echo.Echo {
+func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.TokenUserRepository) *echo.Echo {
 	e := echo.New()
 
 	e.Use(middleware.Logger())
@@ -43,12 +43,12 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config) *echo.Echo {
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	e.GET("/admin/dashboard", h.AdminDashboard,
-		middle.JWTMiddleware(cfg),
+		middle.JWTMiddleware(cfg, userRepo),
 		middle.RequireRole("admin"),
 	)
 
 	e.PUT("/admin/promote", h.PromoteToAdmin,
-		middle.JWTMiddleware(cfg),
+		middle.JWTMiddleware(cfg, userRepo),
 		middle.RequireRole("admin"),
 	)
 
@@ -57,7 +57,7 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config) *echo.Echo {
 	e.POST("/reset-password", h.ResetPassword)
 
 	auth := e.Group("/auth")
-	auth.Use(middle.JWTMiddleware(cfg))
+	auth.Use(middle.JWTMiddleware(cfg, userRepo))
 
 	auth.GET("/profile", h.Profile)
 	auth.PUT("/update", h.UpdateUser)

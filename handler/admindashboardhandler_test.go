@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
+	"reg/tokenutil"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -13,7 +14,7 @@ func TestAdminDashboard_AccessGranted(t *testing.T) {
 
 	e, h := setup(t)
 
-	token := generateAdminTestJWT("admin", h.Cfg.JWT.SignKey)
+	token := generateAdminTestJWT(t, "admin", h.Cfg)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/dashboard", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -21,9 +22,19 @@ func TestAdminDashboard_AccessGranted(t *testing.T) {
 	c := e.NewContext(req, rec)
 
 	// Simulate JWT middleware behavior
-	parsed, _ := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
-		return []byte(h.Cfg.JWT.SignKey), nil
-	})
+
+	claims, err := tokenutil.ParseToken(
+		token,
+		h.Cfg.JWT.SignKey,
+		tokenutil.TokenTypeAccess,
+	)
+	assert.NoError(t, err)
+
+	parsed := &jwt.Token{
+		Claims: claims,
+		Valid:  true,
+	}
+
 	c.Set("user", parsed)
 
 	if assert.NoError(t, h.AdminDashboard(c)) {
@@ -35,7 +46,7 @@ func TestAdminDashboard_AccessGranted(t *testing.T) {
 func TestAdminDashboard_AccessDenied_UserRole(t *testing.T) {
 	e, h := setup(t)
 
-	token := generateAdminTestJWT("user", h.Cfg.JWT.SignKey)
+	token := generateAdminTestJWT(t, "user", h.Cfg)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/dashboard", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -43,9 +54,19 @@ func TestAdminDashboard_AccessDenied_UserRole(t *testing.T) {
 	c := e.NewContext(req, rec)
 
 	// Simulate JWT middleware behavior
-	parsed, _ := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
-		return []byte(h.Cfg.JWT.SignKey), nil
-	})
+
+	claims, err := tokenutil.ParseToken(
+		token,
+		h.Cfg.JWT.SignKey,
+		tokenutil.TokenTypeAccess,
+	)
+	assert.NoError(t, err)
+
+	parsed := &jwt.Token{
+		Claims: claims,
+		Valid:  true,
+	}
+
 	c.Set("user", parsed)
 
 	if assert.NoError(t, h.AdminDashboard(c)) {

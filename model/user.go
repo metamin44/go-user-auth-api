@@ -3,16 +3,18 @@ package model
 import "time"
 
 type User struct {
-	ID               uint       `json:"id" gorm:"primaryKey"`
-	Name             string     `json:"name"`
-	Email            string     `json:"email" gorm:"unique"`
-	Phone            string     `json:"phone" gorm:"unique"`
-	Password         string     `json:"password"`
-	Role             string     `gorm:"default:'user'"`
-	ResetToken       *string    `gorm:"reset_token,omitempty"`
-	ResetTokenExpiry *time.Time `gorm:"reset_token_expiry,omitempty"`
-	CreatedAT        time.Time  `gorm:"autoCreatetime"`
-	UpdatedAt        time.Time  `gorm:"autoUpdatetime"`
+	ID               uint          `json:"id" gorm:"primaryKey"`
+	Name             string        `json:"name"`
+	Email            string        `json:"email" gorm:"unique"`
+	Phone            string        `json:"phone" gorm:"unique"`
+	Password         string        `json:"-" gorm:"not null"`
+	Role             string        `json:"-" gorm:"not null;default:user"`
+	TokenVersion     uint64        `json:"-" gorm:"not null;default:1"`
+	ResetToken       *string       `json:"-" gorm:"column:reset_token"`
+	ResetTokenExpiry *time.Time    `json:"-" gorm:"column:reset_token_expiry"`
+	CreatedAt        time.Time     `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt        time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
+	Sessions         []UserSession `json:"-" gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }
 
 type UserResponse struct {
@@ -23,10 +25,10 @@ type UserResponse struct {
 }
 
 type RegisterRequest struct {
-	Name     string `json:"name" validate:"required"`
-	Email    string `json:"email" validate:"required,email"`
-	Phone    string `json:"phone" validate:"required,e164"` // or custom validation
-	Password string `json:"password" validate:"required,min=8"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+	Password string `json:"password"`
 }
 
 // RegisterPayload represents the Swagger schema for registration
@@ -57,8 +59,8 @@ type RegisterResponse struct {
 }
 
 type LoginResponse struct {
-	Token string `json:"token"`
-	// Add more fields if needed
+    AccessToken  string `json:"access_token"`
+    RefreshToken string `json:"refresh_token"`
 }
 
 type ProfileResponse struct {

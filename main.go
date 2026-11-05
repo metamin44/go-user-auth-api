@@ -1,7 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
 	"reg/config"
 	"reg/handler"
 	"reg/internal/metrics"
@@ -13,6 +22,7 @@ import (
 	_ "reg/docs"
 
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
 // @title Go User Authentication API
@@ -33,29 +43,85 @@ import (
 // @securityDefinitions.apikey BearerAuth
 // @in header
 // @name Authorization
-func main() {
 
+func main() {
+	if err := run(); err != nil {
+		log.Printf("Application stopped with error: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	logger.InitLogger()
-	defer logger.Log.Sync()
+	defer func() {
+		_ = logger.Log.Sync()
+	}()
+
 	logger.Log.Info("Application starting...")
 
 	metrics.Init()
 
-	// Load .env file
 	if err := godotenv.Load(); err != nil {
 		log.Println("warning: No .env file found, using system environment variables.")
 	}
 
 	cfg := config.LoadConfig()
-	// connect DB
+
 	repo, err := repository.NewUserRepo(cfg)
 	if err != nil {
-		log.Fatal("failed to connect to database: ", err)
+		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	// create handler
-	userHandler := handler.NewUserHandler(repo, cfg, logger.Log)
-	e := router.NewRouter(userHandler, cfg)
-	// start server
-	e.Logger.Fatal(e.Start(":8082"))
 
+	defer func() {
+		if err := repo.Close(); err != nil {
+			logger.Log.Error("Failed to close database connection",
+				zap.Error(err),
+			)
+		}
+	}()
+
+	userHandler := handler.NewUserHandler(repo, cfg, logger.Log)
+	e := router.NewRouter(userHandler, cfg, repo)
+
+	serverErr := make(chan error, 1)
+
+	go func() {
+		serverErr <- e.Start(":" + cfg.AppPort)
+	}()
+
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	select {
+	case err := <-serverErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("HTTP server failed: %w", err)
+		}
+		return nil
+
+	case <-ctx.Done():
+		logger.Log.Info("Shutdown signal received")
+
+		shutdownCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+
+		if err := e.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("graceful shutdown failed: %w", err)
+		}
+
+		if err := <-serverErr; err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("HTTP server shutdown failed: %w", err)
+		}
+
+		logger.Log.Info("Application stopped gracefully")
+		return nil
+	}
 }

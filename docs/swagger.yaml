@@ -29,17 +29,10 @@ definitions:
     type: object
   model.LoginResponse:
     properties:
-      token:
+      access_token:
         type: string
-    type: object
-  model.ProfileResponse:
-    properties:
-      email:
+      refresh_token:
         type: string
-      name:
-        type: string
-      user_id:
-        type: integer
     type: object
   model.RegisterPayload:
     properties:
@@ -56,13 +49,6 @@ definitions:
         example: "09123456789"
         type: string
     type: object
-  model.RegisterResponse:
-    properties:
-      email:
-        type: string
-      user_id:
-        type: integer
-    type: object
   model.UpdateUserRequest:
     properties:
       name:
@@ -70,6 +56,17 @@ definitions:
         type: string
       phone:
         example: "09123456789"
+        type: string
+    type: object
+  model.UserResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      phone:
         type: string
     type: object
   request.ForgotPasswordRequest:
@@ -263,10 +260,18 @@ paths:
             - $ref: '#/definitions/model.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/model.ProfileResponse'
+                  $ref: '#/definitions/model.UserResponse'
               type: object
         "401":
           description: Unauthorized - invalid or missing token
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "404":
+          description: User Not Found
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "500":
+          description: Internal Server Error
           schema:
             $ref: '#/definitions/model.APIResponse'
       security:
@@ -316,7 +321,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Generate a password reset token and print reset link to the console
+      description: Request a password reset link. If the email exists, a reset link
+        will be sent.
       parameters:
       - description: User email
         in: body
@@ -339,8 +345,8 @@ paths:
             additionalProperties:
               type: string
             type: object
-        "404":
-          description: Not Found
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties:
               type: string
@@ -352,7 +358,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Authenticate user and get JWT token
+      description: Authenticate user and get JWT tokens
       parameters:
       - description: Login payload
         in: body
@@ -380,50 +386,13 @@ paths:
           description: Unauthorized - invalid credentials
           schema:
             $ref: '#/definitions/model.APIResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.APIResponse'
       summary: User login
       tags:
       - auth
-  /refresh:
-    post:
-      consumes:
-      - application/x-www-form-urlencoded
-      description: Generate a new access token using a valid refresh token
-      parameters:
-      - description: Refresh Token
-        in: formData
-        name: refresh_token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: access_token
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: invalid request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: invalid refresh token
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: could not create new token
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Refresh JWT access token
-      tags:
-      - Auth
   /register:
     post:
       consumes:
@@ -439,17 +408,17 @@ paths:
       produces:
       - application/json
       responses:
-        "200":
+        "201":
           description: Success
           schema:
             allOf:
             - $ref: '#/definitions/model.APIResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/model.RegisterResponse'
+                  $ref: '#/definitions/model.UserResponse'
               type: object
         "400":
-          description: Bad Request - validation errors
+          description: Bad Request
           schema:
             $ref: '#/definitions/model.APIResponse'
         "500":
@@ -486,14 +455,14 @@ paths:
             additionalProperties:
               type: string
             type: object
-        "401":
-          description: Unauthorized
+        "404":
+          description: Not Found
           schema:
             additionalProperties:
               type: string
             type: object
-        "404":
-          description: Not Found
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties:
               type: string

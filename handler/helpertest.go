@@ -1,14 +1,12 @@
 package handler
 
 import (
-	"fmt"
 	"reg/config"
 	"reg/model"
 	"reg/repository"
+	"reg/tokenutil"
 	"testing"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
@@ -45,9 +43,12 @@ func setup(t *testing.T) (*echo.Echo, *UserHandler) {
 
 	// Load config
 	cfg := config.LoadConfig()
+	// Tests run on the host machine, not inside Docker.
+	cfg.Database.Host = "127.0.0.1"
+	cfg.Database.Port = "3320"
 
 	// Initialize a no-op zap logger (silent, test-friendly)
-	logger, _ := zap.NewDevelopment() // or zap.NewExample() / zap.NewNop()
+	logger, err := zap.NewDevelopment() // or zap.NewExample() / zap.NewNop()
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)
 	}
@@ -68,30 +69,15 @@ func setup(t *testing.T) (*echo.Echo, *UserHandler) {
 	return e, handler
 }
 
-func generateResetToken(t *testing.T, email, secret string) string {
+func generateResetToken(t *testing.T, email string, cfg *config.Config) string {
 	t.Helper()
-	claims := jwt.MapClaims{
-		"sub": email,
-		"exp": time.Now().Add(15 * time.Minute).Unix(),
-		"jti": fmt.Sprintf("%d", time.Now().UnixNano()), // Unique identifier
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signedToken, err := token.SignedString([]byte(secret))
+
+	signedToken, err := tokenutil.GenerateResetToken(email, cfg)
 	if err != nil {
 		t.Fatalf("Failed to create reset token: %v", err)
 	}
+
 	return signedToken
-}
-
-func generateRefreshToken(userID uint, role string, secret string) (string, error) {
-	claims := jwt.MapClaims{
-		"user_id": userID,
-		"role":    role,
-		"exp":     time.Now().Add(24 * time.Hour).Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
 }
 
 func insertPromotableUser(t *testing.T, h *UserHandler, email, password, role string) *model.User {
@@ -120,26 +106,26 @@ func insertPromotableUser(t *testing.T, h *UserHandler, email, password, role st
 }
 
 // generateTestJWT creates a valid JWT token for testing
-func generateTestJWT(userID uint) string {
-	// Replace with the secret you use in your real config
-	secret := []byte("supersecretkey") // ✅ MUST match your config.AccessTokenSecret
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": userID,
-		"exp":     time.Now().Add(time.Hour * 1).Unix(), // expires in 1 hour
-	})
-	tokenString, _ := token.SignedString(secret)
-	return tokenString
+func generateTestJWT(t *testing.T, userID uint, cfg *config.Config) string {
+	t.Helper()
+
+	token, err := tokenutil.GenerateAccessToken(userID, "user", 1, cfg)
+	if err != nil {
+		t.Fatalf("Failed to generate access token: %v", err)
+	}
+
+	return token
 }
 
-// Helper to generate JWT token with role claim
-func generateAdminTestJWT(role string, secret string) string {
-	claims := jwt.MapClaims{
-		"sub":  "testuser@example.com",
-		"role": role,
-		"exp":  time.Now().Add(time.Hour).Unix(),
+// generateAdminTestJWT creates a valid access token for admin tests.
+func generateAdminTestJWT(t *testing.T, role string, cfg *config.Config) string {
+	t.Helper()
+
+	token, err := tokenutil.GenerateAccessToken(1, role, 1, cfg)
+	if err != nil {
+		t.Fatalf("Failed to generate admin test token: %v", err)
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenStr, _ := token.SignedString([]byte(secret))
-	return tokenStr
+
+	return token
 }

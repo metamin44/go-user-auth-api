@@ -278,7 +278,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/model.ProfileResponse"
+                                            "$ref": "#/definitions/model.UserResponse"
                                         }
                                     }
                                 }
@@ -287,6 +287,18 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized - invalid or missing token",
+                        "schema": {
+                            "$ref": "#/definitions/model.APIResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "User Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/model.APIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/model.APIResponse"
                         }
@@ -356,7 +368,7 @@ const docTemplate = `{
         },
         "/forgot-password": {
             "post": {
-                "description": "Generate a password reset token and print reset link to the console",
+                "description": "Request a password reset link. If the email exists, a reset link will be sent.",
                 "consumes": [
                     "application/json"
                 ],
@@ -397,8 +409,8 @@ const docTemplate = `{
                             }
                         }
                     },
-                    "404": {
-                        "description": "Not Found",
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -411,7 +423,7 @@ const docTemplate = `{
         },
         "/login": {
             "post": {
-                "description": "Authenticate user and get JWT token",
+                "description": "Authenticate user and get JWT tokens",
                 "consumes": [
                     "application/json"
                 ],
@@ -463,67 +475,11 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/model.APIResponse"
                         }
-                    }
-                }
-            }
-        },
-        "/refresh": {
-            "post": {
-                "description": "Generate a new access token using a valid refresh token",
-                "consumes": [
-                    "application/x-www-form-urlencoded"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Auth"
-                ],
-                "summary": "Refresh JWT access token",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Refresh Token",
-                        "name": "refresh_token",
-                        "in": "formData",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "access_token",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "invalid request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "invalid refresh token",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
                     },
                     "500": {
-                        "description": "could not create new token",
+                        "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/model.APIResponse"
                         }
                     }
                 }
@@ -554,7 +510,7 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Success",
                         "schema": {
                             "allOf": [
@@ -565,7 +521,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/model.RegisterResponse"
+                                            "$ref": "#/definitions/model.UserResponse"
                                         }
                                     }
                                 }
@@ -573,7 +529,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad Request - validation errors",
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/model.APIResponse"
                         }
@@ -630,8 +586,8 @@ const docTemplate = `{
                             }
                         }
                     },
-                    "401": {
-                        "description": "Unauthorized",
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -639,8 +595,8 @@ const docTemplate = `{
                             }
                         }
                     },
-                    "404": {
-                        "description": "Not Found",
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -696,22 +652,11 @@ const docTemplate = `{
         "model.LoginResponse": {
             "type": "object",
             "properties": {
-                "token": {
-                    "type": "string"
-                }
-            }
-        },
-        "model.ProfileResponse": {
-            "type": "object",
-            "properties": {
-                "email": {
+                "access_token": {
                     "type": "string"
                 },
-                "name": {
+                "refresh_token": {
                     "type": "string"
-                },
-                "user_id": {
-                    "type": "integer"
                 }
             }
         },
@@ -736,17 +681,6 @@ const docTemplate = `{
                 }
             }
         },
-        "model.RegisterResponse": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "integer"
-                }
-            }
-        },
         "model.UpdateUserRequest": {
             "type": "object",
             "properties": {
@@ -757,6 +691,23 @@ const docTemplate = `{
                 "phone": {
                     "type": "string",
                     "example": "09123456789"
+                }
+            }
+        },
+        "model.UserResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
                 }
             }
         },
@@ -808,6 +759,8 @@ var SwaggerInfo = &swag.Spec{
 	Description:      "A modular monolithic backend in Golang using Echo, MySQL, Docker, and JWT for user authentication.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
+	LeftDelim:        "{{",
+	RightDelim:       "}}",
 }
 
 func init() {

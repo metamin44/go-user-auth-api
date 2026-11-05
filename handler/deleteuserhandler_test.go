@@ -34,7 +34,7 @@ func TestDeleteUser(t *testing.T) {
 		require.NoError(t, err)
 
 		// Generate token for the new user
-		token, err := tokenutil.GenerateAccessToken(tempUser.ID, tempUser.Role, h.Cfg.JWT.SignKey)
+		token, err := tokenutil.GenerateAccessToken(tempUser.ID, tempUser.Role, tempUser.TokenVersion, h.Cfg)
 		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/delete", nil)
@@ -58,7 +58,7 @@ func TestDeleteUser(t *testing.T) {
 		// Use a random user ID that doesn't exist
 		nonExistentUserID := uint(99999)
 
-		token, _ := tokenutil.GenerateAccessToken(nonExistentUserID, "user", h.Cfg.JWT.SignKey)
+		token, _ := tokenutil.GenerateAccessToken(nonExistentUserID, "user", 1, h.Cfg)
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/delete", nil)
 		req.Header.Set(echo.HeaderAuthorization, "Bearer "+token)
@@ -69,5 +69,17 @@ func TestDeleteUser(t *testing.T) {
 
 		_ = h.DeleteUser(c)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+	t.Run("Missing_User_ID", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/auth/delete", nil)
+
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		// Intentionally do not set user_id in context.
+		err := h.DeleteUser(c)
+
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	})
 }

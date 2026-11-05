@@ -10,6 +10,7 @@ import (
 )
 
 type Config struct {
+	AppPort   string
 	Database  DatabaseConfig
 	JWT       JWTConfig
 	Email     EmailConfig
@@ -38,6 +39,7 @@ type EmailConfig struct {
 	Username    string
 	Password    string
 	From        string
+	ResetURL    string
 	EnableEmail bool
 	EnableLogs  bool
 }
@@ -61,6 +63,8 @@ func LoadConfig() *Config {
 	}
 
 	cfg := &Config{
+		AppPort: getEnv("APP_PORT", "8082"),
+
 		Database: DatabaseConfig{
 			User:     getEnv("DB_USER", ""),
 			Password: getEnv("DB_PASS", ""),
@@ -68,19 +72,22 @@ func LoadConfig() *Config {
 			Port:     getEnv("DB_PORT", ""),
 			Name:     getEnv("DB_NAME", ""),
 		},
+
 		JWT: JWTConfig{
-			SignKey:    "",
-			RefreshKey: "",
-			ResetKey:   "",
+			SignKey:    getEnv("JWT_SIGN_KEY", ""),
+			RefreshKey: getEnv("JWT_REFRESH_KEY", ""),
+			ResetKey:   getEnv("JWT_RESET_KEY", ""),
 			AccessTTL:  24 * time.Hour,
 			RefreshTTL: 7 * 24 * time.Hour,
 		},
+
 		Email: EmailConfig{
 			Host:        getEnv("EMAIL_HOST", ""),
 			Port:        emailPort,
 			Username:    getEnv("EMAIL_USERNAME", ""),
 			Password:    getEnv("EMAIL_PASSWORD", ""),
 			From:        getEnv("EMAIL_FROM", ""),
+			ResetURL:    getEnv("RESET_PASSWORD_URL", "http://localhost:8085/reset-password"),
 			EnableEmail: getEnv("ENABLE_EMAIL", "") == "true",
 			EnableLogs:  getEnv("ENABLE_LOGS", "") == "true",
 		},
