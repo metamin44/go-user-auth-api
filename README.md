@@ -1,284 +1,394 @@
 # Go User Authentication API
 
-A modular user authentication system built in Go with Echo framework, JWT, MySQL, Docker, and advanced features like email password reset, RBAC, rate limiting, supports real email delivery, using `.env` configuration, HTML email templates, structured logging, and Prometheus/Grafana for observability.
+A modular RESTful authentication backend built with **Go and Echo**, backed by **MySQL** and **GORM**. The project includes JWT-based authentication, refresh token rotation, session management, role-based access control, password recovery, rate limiting, structured logging, API documentation, and monitoring with Prometheus and Grafana.
 
----
+It is containerized with Docker Compose and supports running multiple application instances.
 
-## 🔧 Features
+## Features
 
-- ✅ User registration with validation  
-- 🔐 Secure login with JWT access and refresh tokens  
-- 🔄 Token-based authorization with refresh endpoint 
-- 🔑 Password change and reset (via email link) 
-- 👤 Profile endpoint  
-- 🛠️ User update, delete, and change password  
-- 🔑 Forgot/reset password functionality using JWT reset token  
-- 🛡️ Role-based access control (`admin`, `user`)  
-- 📊 Admin can promote users to admin (`/admin/dashboard`, `/admin/promote`)  
-- 📄 Swagger UI API documentation 
-- 📧 Email integration for password reset using HTML template  
-- 🔐 Separate keys for access and refresh tokens for enhanced security  
-- 🐳 Docker Compose support with MySQL  
-- 🛠️ Environment configuration via `.env`  
-- 🚫 Rate limiting on `/register`, `/login`, and `/forgot-password`
-- ✅ Structured logging with Zap + Lumberjack rotation
-- 📊 Monitoring with Prometheus and Grafana
+### Authentication and account management
 
----
+- User registration with input validation.
+- Secure password hashing using bcrypt.
+- Login with JWT access and refresh tokens.
+- Separate signing keys for access, refresh, and password-reset tokens.
+- Protected user profile endpoint.
+- Update and delete user accounts.
+- Change password.
+- Forgot-password and password-reset flows.
+- HTML email template for password-reset messages.
+- Optional SMTP email delivery configuration.
 
-## 📦 Stack
+### Session and token security
 
-- **Go (Golang)** – Main backend language  
-- **Echo** – HTTP web framework  
-- **MySQL** – Database  
-- **JWT** – Authentication and authorization  
-- **Ozzo-validation** – Input validation  
-- **Swagger (swaggo/swag)** – API documentation  
-- **Docker & Docker Compose** – Containerization  
-- **SMTP (Gmail)** – Email delivery  
-- **ulule/limiter** – Rate limiting middleware 
-- **Zap + Lumberjack Integration** - Structured logging   
+- Independent login sessions.
+- Refresh token rotation.
+- Refresh token hashes stored in the database instead of raw refresh tokens.
+- Refresh token reuse detection.
+- Session expiration and revocation.
+- Token versioning to invalidate previously issued tokens after security-sensitive account changes.
 
----
+### Authorization and protection
 
-## 🚀 Getting Started
+- Role-based access control (RBAC) for `user` and `admin` roles.
+- Admin-only dashboard and user promotion endpoints.
+- Rate limiting for registration, login, and forgot-password requests.
+- Request validation using Ozzo Validation.
 
-### 1. Clone the Repository
+### Observability and documentation
+
+- Structured JSON logging with Uber Zap.
+- Log rotation using Lumberjack.
+- Prometheus application metrics.
+- Grafana dashboard support.
+- Swagger API documentation.
+
+## Tech Stack
+
+| Technology       | Purpose                          |
+| ---------------- | -------------------------------- |
+| Go               | Backend programming language     |
+| Echo             | HTTP web framework               |
+| MySQL            | Relational database              |
+| GORM             | ORM and database access          |
+| JWT              | Authentication and authorization |
+| bcrypt           | Password hashing                 |
+| Ozzo Validation  | Request validation               |
+| Swagger / Swaggo | API documentation                |
+| Docker Compose   | Application orchestration        |
+| SMTP             | Password-reset email integration |
+| Zap              | Structured logging               |
+| Lumberjack       | Log rotation                     |
+| Prometheus       | Metrics collection               |
+| Grafana          | Metrics visualization            |
+
+## Architecture Overview
+
+The application follows a modular monolithic structure:
+
+- **Router:** Registers public, authenticated, and admin-only routes.
+- **Handler:** Processes HTTP requests and responses.
+- **Repository:** Handles database operations.
+- **Model:** Defines database entities, including users and sessions.
+- **Middleware:** Handles JWT authentication, authorization, rate limiting, and metrics.
+- **Token utilities:** Generate and validate authentication and password-reset tokens.
+- **Validation:** Centralizes request validation.
+- **Configuration:** Loads application settings from environment variables.
+
+The Docker Compose setup runs two application instances behind the same MySQL database, alongside Prometheus and Grafana.
+
+## Getting Started
+
+### Prerequisites
+
+- Go (version specified in `go.mod`).
+- Docker Desktop or Docker Engine with Docker Compose.
+- Git.
+
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/metamin44/go-user-auth-api.git
 cd go-user-auth-api
 ```
 
-### 2. Configure Environment Variables
+### 2. Configure environment variables
 
-Create a `.env` file in the root:
-
-```env
-# Database
-DB_USER=your_DB_USER
-DB_PASS=your_DB_PASS
-DB_HOST=your_DB_HOST
-DB_PORT=your_DB_PORT
-DB_NAME=your_DB_NAME
-
-# JWT Keys
-JWT_SIGN_KEY=your_JWT_SIGN_KEY
-JWT_REFRESH_KEY=your_JWT_REFRESH_KEY
-JWT_RESET_KEY=your_JWT_RESET_KEY
-
-# Email SMTP
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USERNAME=youremail@gmail.com
-EMAIL_PASSWORD=your-app-password
-EMAIL_FROM=youremail@gmail.com
-ENABLE_EMAIL=true/false
-ENABLE_LOGS=true/false
-
-# Rate Limits
-RATE_LIMIT_REGISTER=5-S
-RATE_LIMIT_LOGIN=10-M
-RATE_LIMIT_FORGOT_PASSWORD=3-M
-```
-**⚠️ Don't commit `.env` — it’s ignored by `.gitignore`.**
-
----
-
-### 3. Build & Run with Docker
+Create your local environment file from the example:
 
 ```bash
-docker-compose up --build
+cp .env.example .env
 ```
 
-- App 1: First instance of the Go app [http://localhost:8085/swagger/index.html](http://localhost:8085/swagger/index.html)  
-- App 2: Second instance of the Go app [http://localhost:8086/swagger/index.html](http://localhost:8086/swagger/index.html)  
-- MySQL: Connect to `localhost:3320`
-- Prometheus 9091 Metrics collection and query engine
-- Grafana 3001 Dashboard and visualization UI
+Update `.env` with your own configuration.
 
----
+Important settings include:
 
-## 📫 Password Reset via Email
+| Variable group        | Description                           |
+| --------------------- | ------------------------------------- |
+| `APP_PORT`            | Application listening port            |
+| `DB_*`                | MySQL connection settings             |
+| `MYSQL_ROOT_PASSWORD` | MySQL root password                   |
+| `JWT_SIGN_KEY`        | Access-token signing key              |
+| `JWT_REFRESH_KEY`     | Refresh-token signing key             |
+| `JWT_RESET_KEY`       | Password-reset token signing key      |
+| `EMAIL_*`             | SMTP server and sender configuration  |
+| `ENABLE_EMAIL`        | Enable or disable email delivery      |
+| `ENABLE_LOGS`         | Enable or disable application logging |
+| `RESET_PASSWORD_URL`  | Password-reset page URL               |
+| `RATE_LIMIT_*`        | Rate-limiting configuration           |
+| `GF_SECURITY_*`       | Grafana administrator credentials     |
 
-- Triggered by: `POST /forgot-password`
-- Sends a real email with a secure tokenized reset link
-- HTML template used for better styling and UX
-- Also logs the reset link to console (for dev/testing)
+Use strong, unique secret values for the JWT keys and passwords. Configure the email settings with valid SMTP credentials if you want to enable email delivery.
 
----
+**Never commit your actual `.env` file or production secrets.** The local environment file is excluded through `.gitignore`.
 
-## 📦 Logging
+### 3. Build and start the services
 
-### Zap + Lumberjack Integration
-
-This project uses [Uber's Zap](https://github.com/uber-go/zap) for fast, structured logging and [Lumberjack](https://github.com/natefinch/lumberjack) for log rotation.
-
-- Logs are written in **JSON** format to a file: `logs/app.log`
-- **Lumberjack** handles automatic rotation, compression, and size limits
-- Logging is enabled across:
-  - Configuration loading
-  - User handlers 
-  - Token generation
-  - Email sending
-  - Middleware (RBAC, rate limiting)
-  - Repository/database operations
-
-### Example log output (app.log)
-
-```json
-{
-  "level": "info",
-  "ts": 1721453274.24856,
-  "caller": "handler/user.go:45",
-  "msg": "User registered successfully",
-  "userID": 7,
-  "email": "test@example.com"
-}
+```bash
+docker compose up --build -d
 ```
 
----
+This starts:
 
-## 🛠️ Endpoints
+| Service                 | Address                                  |
+| ----------------------- | ---------------------------------------- |
+| Application instance 1  | http://localhost:8085                    |
+| Application instance 2  | http://localhost:8086                    |
+| Swagger UI (instance 1) | http://localhost:8085/swagger/index.html |
+| Swagger UI (instance 2) | http://localhost:8086/swagger/index.html |
+| MySQL                   | `localhost:3320`                         |
+| Prometheus              | http://localhost:9091                    |
+| Grafana                 | http://localhost:3001                    |
 
-### ✅ Public
+The first application instance runs database migrations. The second instance starts without running migrations.
 
-| Method | Endpoint             | Description                |
-|--------|----------------------|----------------------------|
-| POST   | `/register`          | Register a new user        |
-| POST   | `/login`             | User login                 |
-| POST   | `/refresh-token`     | Refresh JWT access token   |
-| POST   | `/forgot-password`   | Request password reset     |
-| POST   | `/reset-password`    | Reset user password        |
+To check service status:
 
-### 🔐 Authenticated (JWT Required)
+```bash
+docker compose ps
+```
 
-| Method | Endpoint              | Description              |
-|--------|-----------------------|--------------------------|
-| GET    | `/profile`            | Get current user profile |
-| PUT    | `/update`             | Update user profile      |
-| PUT    | `/change-password`    | Change user password     |
-| DELETE | `/delete`             | Delete user account      |
+To view application logs:
 
-### 🛡️ Admin Only
+```bash
+docker compose logs -f app1
+```
 
-| Method | Endpoint              | Description                    |
-|--------|-----------------------|--------------------------------|
-| GET    | `/admin/dashboard`    | Protected admin dashboard      |
-| POST   | `/admin/promote`      | Promote user to admin role     |
+To stop the services:
 
----
+```bash
+docker compose down
+```
 
-## 📊 Monitoring with Prometheus & Grafana
+To stop the services and remove named volumes:
 
-Prometheus
+```bash
+docker compose down -v
+```
 
-Prometheus scrapes metrics from:
+**Note:** Removing volumes can delete persistent data, including Grafana storage.
 
-app1:8082/metrics
+## API Endpoints
 
-app2:8082/metrics
+The following table summarizes the routes registered by the application.
 
+### Public endpoints
 
-Prometheus config (prometheus.yml):
+| Method | Endpoint           | Description                               |
+| ------ | ------------------ | ----------------------------------------- |
+| POST   | `/register`        | Register a new user                       |
+| POST   | `/login`           | Authenticate a user                       |
+| POST   | `/refresh`         | Rotate refresh token and issue new tokens |
+| POST   | `/forgot-password` | Request a password-reset link             |
+| GET    | `/reset-password`  | Display the password-reset page           |
+| POST   | `/reset-password`  | Reset the user's password                 |
 
-global:
-  scrape_interval: 15s
+### Authenticated endpoints
 
+These endpoints require a valid access token in the `Authorization` header.
+
+| Method | Endpoint                | Description                             |
+| ------ | ----------------------- | --------------------------------------- |
+| GET    | `/auth/profile`         | Get the authenticated user's profile    |
+| PUT    | `/auth/update`          | Update the user's profile               |
+| DELETE | `/auth/delete`          | Delete the authenticated user's account |
+| POST   | `/auth/change-password` | Change the user's password              |
+
+Example authorization header:
+
+```http
+Authorization: Bearer YOUR_ACCESS_TOKEN
+```
+
+### Admin-only endpoints
+
+These endpoints require an authenticated administrator.
+
+| Method | Endpoint           | Description                     |
+| ------ | ------------------ | ------------------------------- |
+| GET    | `/admin/dashboard` | Access the admin dashboard      |
+| PUT    | `/admin/promote`   | Promote a user to administrator |
+
+## Password Reset
+
+The password recovery flow works as follows:
+
+1. A user submits a password-reset request.
+2. The application generates a time-limited reset token.
+3. The reset link is prepared using the configured reset URL.
+4. The application can deliver the link through SMTP when email delivery is enabled and correctly configured.
+5. The user opens the reset page and submits a new password.
+6. The reset token is validated before the password is changed.
+
+Reset tokens have a **15-minute validity period**.
+
+The project includes an HTML email template at:
+
+```text
+tokenutil/templates/reset_email.html
+```
+
+The reset link is also logged for development and testing purposes. Avoid exposing reset tokens in production logs.
+
+## Session Management and Token Rotation
+
+Each successful login creates an independent user session.
+
+The authentication flow includes:
+
+- Shorter-lived access tokens and longer-lived refresh tokens.
+- Separate signing keys for different token types.
+- Refresh token rotation when a refresh request succeeds.
+- SHA-256 hashes of refresh tokens stored in the database.
+- Detection of refresh token reuse.
+- Session expiration and revocation.
+- Token-version checks to invalidate previously issued tokens after relevant account changes.
+
+This design helps reduce the impact of stolen or replayed refresh tokens.
+
+## Monitoring with Prometheus and Grafana
+
+The application exposes metrics through:
+
+```text
+/metrics
+```
+
+Prometheus is configured to scrape both application instances:
+
+```yaml
 scrape_configs:
-  - job_name: 'apps'
+  - job_name: "apps"
     static_configs:
-      - targets: ['app1:8082', 'app2:8082']
+      - targets: ["app1:8082", "app2:8082"]
+```
 
-Access Prometheus UI: 👉 http://localhost:9091
+The scrape interval is configured in `prometheus.yml`.
 
+Open the Prometheus interface:
 
----
+http://localhost:9091
 
-Grafana
+Open Grafana:
 
-Login to Grafana: 👉 http://localhost:3001
-Username: admin
-Password: admin
+http://localhost:3001
 
+Use the administrator credentials configured through `GF_SECURITY_ADMIN_USER` and `GF_SECURITY_ADMIN_PASSWORD` in `.env`.
 
----
+## Logging
 
-## 🧪 Unit Testing
+The application uses Uber Zap for structured logging and Lumberjack for log rotation.
 
-Example:
+- Structured JSON log output.
+- File-based logging.
+- Automatic log rotation and compression.
+- Logging across application handlers, middleware, token operations, and database-related operations.
+
+The configured log file is:
+
+```text
+logs/app.log
+```
+
+## Running Tests
+
+The test suite includes handler, middleware, repository, and validation tests.
+
+**Database prerequisite:** Handler and repository tests connect to MySQL. The handler test setup loads `.env` from the project root and connects to the database at `127.0.0.1:3320`.
+
+First, make sure `.env` is configured and start the database:
 
 ```bash
-go test ./handler -v
+docker compose up -d db
 ```
 
-- Includes positive and negative test cases
-- Structured response decoding for JSON validation
-- Clean database after each test
+Then, from the project root, run:
 
----
-
-## 📘 API Docs
-
-Swagger is available at:
-
-- `http://localhost:8085/swagger/index.html`
-- `http://localhost:8086/swagger/index.html`
-
----
-
-## 🐳 Docker Overview
-
- docker-compose.yml includes:
-
-2 App Instances on different ports
-
-MySQL with userdb
-
-Prometheus scraping /metrics from each app
-
-Grafana dashboard for observability
-
-
-docker-compose down # Stop services
-docker-compose down -v # Stop & remove volumes
-
----
-
-## 🛠 Project Structure
-
+```bash
+go test -count=1 ./...
 ```
-├── config
-|__ docs
-|__ internal
-|    └─ metrics
-├── handler
-|__logger
-│   └─ logger.go
-├── logs
-│   └─ app.log
-├── middleware
-├── model
-├── repository
-├── router
-├── templates
-│   └── reset_email.html
-├── tokenutil
-├── validationuser
+
+Run an individual package's tests:
+
+```bash
+go test -count=1 ./handler -v
+go test -count=1 ./middleware -v
+go test -count=1 ./repository -v
+go test -count=1 ./validationuser -v
+```
+
+The tests use database records and should be run against a development or dedicated test database, not a production database.
+
+Additional code checks:
+
+```bash
+go vet ./...
+go build ./...
+```
+
+## API Documentation
+
+Swagger documentation is generated with Swaggo and is available after starting the application:
+
+- http://localhost:8085/swagger/index.html
+- http://localhost:8086/swagger/index.html
+
+Use Swagger UI to explore the API endpoints and test supported requests.
+
+## Project Structure
+
+```text
+.
+├── config/
+│   └── config.go
+├── docs/
+│   ├── docs.go
+│   ├── swagger.json
+│   └── swagger.yaml
+├── handler/
+│   ├── userhandler.go
+│   └── *_test.go
+├── internal/
+│   └── metrics/
+│       └── metrics.go
+├── logger/
+│   └── logger.go
+├── middleware/
+│   ├── jwtmiddleware.go
+│   ├── metrics.go
+│   ├── ratelimiter.go
+│   └── *_test.go
+├── model/
+│   ├── request/
+│   │   └── user.go
+│   ├── user.go
+│   └── user_session.go
+├── repository/
+│   ├── user.go
+│   └── user_test.go
+├── router/
+│   └── router.go
+├── tokenutil/
+│   ├── email.go
+│   ├── token.go
+│   └── templates/
+│       └── reset_email.html
+├── validationuser/
+│   ├── validator.go
+│   └── validator_test.go
 ├── main.go
-├── go.mod / go.sum
-├── .env (ignored)
-└── Dockerfile / docker-compose.yml / prometheus.yml
+├── Dockerfile
+├── docker-compose.yml
+├── prometheus.yml
+├── .env.example
+├── .gitignore
+├── go.mod
+└── go.sum
 ```
 
----
+## Current Project Status
 
-## 📝 License
+This repository is a practical backend project demonstrating authentication, authorization, database integration, session security, automated tests, containerization, and observability with Go.
 
-This project is open-source and free to use under the MIT License.
-
----
-
-## 🙋 Author
-
-Created by [amin](https://github.com/metamin44/go-user-auth-api.git)
+Some integrations, such as actual SMTP delivery, still require verification with valid external credentials and a real email account.
