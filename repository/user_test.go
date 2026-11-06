@@ -782,11 +782,15 @@ func TestCompletePasswordReset(t *testing.T) {
 	t.Run("complete password reset successfully", func(t *testing.T) {
 		repo, userID := setupRepositoryTest(t)
 
-		resetToken := "hashed-reset-token"
-		resetExpiry := time.Now().Add(time.Hour)
+		resetTokenHash := "hashed-reset-token"
+		now := time.Now()
+		resetExpiry := now.Add(time.Hour)
 
-		err := repo.SavePasswordResetToken(userID, resetToken, resetExpiry)
-		if err != nil {
+		if err := repo.SavePasswordResetToken(
+			userID,
+			resetTokenHash,
+			resetExpiry,
+		); err != nil {
 			t.Fatalf("failed to save reset token: %v", err)
 		}
 
@@ -797,7 +801,12 @@ func TestCompletePasswordReset(t *testing.T) {
 
 		newHashedPassword := "new-reset-password-hash"
 
-		err = repo.CompletePasswordReset(userID, newHashedPassword)
+		err = repo.CompletePasswordReset(
+			userID,
+			newHashedPassword,
+			resetTokenHash,
+			now,
+		)
 		if err != nil {
 			t.Fatalf("expected password reset to succeed, got: %v", err)
 		}
@@ -826,21 +835,62 @@ func TestCompletePasswordReset(t *testing.T) {
 			t.Errorf("expected token version %d, got %d",
 				userBefore.TokenVersion+1, userAfter.TokenVersion)
 		}
+
+		// The same reset token must not be reusable.
+		err = repo.CompletePasswordReset(
+			userID,
+			"another-password-hash",
+			resetTokenHash,
+			now,
+		)
+		if !errors.Is(err, ErrInvalidOrExpiredResetToken) {
+			t.Errorf("expected ErrInvalidOrExpiredResetToken on reuse, got: %v", err)
+		}
 	})
 
-	t.Run("user not found", func(t *testing.T) {
+	t.Run("reject expired reset token", func(t *testing.T) {
+		repo, userID := setupRepositoryTest(t)
+
+		resetTokenHash := "expired-reset-token"
+		now := time.Now()
+		expiredAt := now.Add(-time.Minute)
+
+		if err := repo.SavePasswordResetToken(
+			userID,
+			resetTokenHash,
+			expiredAt,
+		); err != nil {
+			t.Fatalf("failed to save expired reset token: %v", err)
+		}
+
+		err := repo.CompletePasswordReset(
+			userID,
+			"new-password-hash",
+			resetTokenHash,
+			now,
+		)
+
+		if !errors.Is(err, ErrInvalidOrExpiredResetToken) {
+			t.Errorf("expected ErrInvalidOrExpiredResetToken, got: %v", err)
+		}
+	})
+
+	t.Run("reject user not found", func(t *testing.T) {
 		repo, _ := setupRepositoryTest(t)
 
 		err := repo.CompletePasswordReset(
 			999999999,
 			"new-reset-password-hash",
+			"some-reset-token-hash",
+			time.Now(),
 		)
 
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			t.Errorf("expected gorm.ErrRecordNotFound, got: %v", err)
+		if !errors.Is(err, ErrInvalidOrExpiredResetToken) {
+			t.Errorf("expected ErrInvalidOrExpiredResetToken, got: %v", err)
 		}
 	})
 }
+
 func TestPromoteUserToAdmin(t *testing.T) {
 	t.Run("promote user successfully and increment token version", func(t *testing.T) {
 		repo, userID := setupRepositoryTest(t)

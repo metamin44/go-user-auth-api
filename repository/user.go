@@ -26,13 +26,14 @@ type UserRepo struct {
 }
 
 var (
-	ErrEmailAlreadyExists = errors.New("email already exists")
-	ErrPhoneAlreadyExists = errors.New("phone already exists")
-	ErrDuplicateEntry     = errors.New("duplicate entry")
-	ErrSessionNotFound    = errors.New("session not found")
-	ErrSessionRevoked     = errors.New("session has been revoked")
-	ErrSessionExpired     = errors.New("session has expired")
-	ErrRefreshTokenReuse  = errors.New("refresh token reuse detected")
+	ErrEmailAlreadyExists         = errors.New("email already exists")
+	ErrPhoneAlreadyExists         = errors.New("phone already exists")
+	ErrDuplicateEntry             = errors.New("duplicate entry")
+	ErrSessionNotFound            = errors.New("session not found")
+	ErrSessionRevoked             = errors.New("session has been revoked")
+	ErrSessionExpired             = errors.New("session has expired")
+	ErrRefreshTokenReuse          = errors.New("refresh token reuse detected")
+	ErrInvalidOrExpiredResetToken = errors.New("invalid or expired reset token")
 )
 
 func NewUserRepo(cfg *config.Config) (*UserRepo, error) {
@@ -337,11 +338,21 @@ func (r *UserRepo) UpdatePassword(id uint, hashedPassword string) error {
 	return nil
 }
 
-// CompletePasswordReset updates the password, clears reset data,
-// and revokes all existing access and refresh tokens.
-func (r *UserRepo) CompletePasswordReset(id uint, hashedPassword string) error {
+// CompletePasswordReset atomically validates and consumes the reset token,
+// updates the password, and revokes all existing access and refresh tokens.
+func (r *UserRepo) CompletePasswordReset(
+	id uint,
+	hashedPassword string,
+	hashedResetToken string,
+	now time.Time,
+) error {
 	result := r.DB.Model(&model.User{}).
-		Where("id = ?", id).
+		Where(
+			"id = ? AND reset_token = ? AND reset_token_expiry > ?",
+			id,
+			hashedResetToken,
+			now,
+		).
 		Updates(map[string]interface{}{
 			"password":           hashedPassword,
 			"reset_token":        nil,
@@ -350,7 +361,8 @@ func (r *UserRepo) CompletePasswordReset(id uint, hashedPassword string) error {
 		})
 
 	if result.Error != nil {
-		r.Logger.Error("Failed to complete password reset",
+		r.Logger.Error(
+			"Failed to complete password reset",
 			zap.Uint("user_id", id),
 			zap.Error(result.Error),
 		)
@@ -358,10 +370,11 @@ func (r *UserRepo) CompletePasswordReset(id uint, hashedPassword string) error {
 	}
 
 	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		return ErrInvalidOrExpiredResetToken
 	}
 
-	r.Logger.Info("Password reset completed and existing tokens revoked",
+	r.Logger.Info(
+		"Password reset completed and existing tokens revoked",
 		zap.Uint("user_id", id),
 	)
 

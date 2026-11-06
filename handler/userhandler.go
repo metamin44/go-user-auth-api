@@ -877,10 +877,13 @@ func (h *UserHandler) ResetPassword(c echo.Context) error {
 	}
 
 	// Validate token match and database expiry
+	resetTokenHash := hashResetToken(req.Token)
+	now := time.Now()
+
 	if user.ResetToken == nil ||
 		user.ResetTokenExpiry == nil ||
-		*user.ResetToken != hashResetToken(req.Token) ||
-		time.Now().After(*user.ResetTokenExpiry) {
+		*user.ResetToken != resetTokenHash ||
+		!user.ResetTokenExpiry.After(now) {
 
 		h.Logger.Warn("Token mismatch or expired", zap.Uint("user_id", user.ID))
 		return c.JSON(http.StatusBadRequest, echo.Map{
@@ -907,12 +910,19 @@ func (h *UserHandler) ResetPassword(c echo.Context) error {
 		})
 	}
 
-	// Update password and clear reset token
-
+	// Atomically validate and consume the reset token.
 	if err := h.Repo.CompletePasswordReset(
 		user.ID,
 		string(hashedPassword),
+		resetTokenHash,
+		now,
 	); err != nil {
+		if err == repository.ErrInvalidOrExpiredResetToken {
+			return c.JSON(http.StatusBadRequest, echo.Map{
+				"error": "Token is invalid or expired",
+			})
+		}
+
 		h.Logger.Error("Failed to update password in DB", zap.Uint("user_id", user.ID), zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, echo.Map{
 			"error": "Failed to update password",
