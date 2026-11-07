@@ -226,13 +226,23 @@ func (h *UserHandler) Login(c echo.Context) error {
 
 	user, err := h.Repo.GetUserByEmail(req.Email)
 	if err != nil {
-		h.Logger.Warn("User not found during login",
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			h.Logger.Warn("User not found during login",
+				zap.String("email", req.Email),
+			)
+			return c.JSON(http.StatusUnauthorized, model.APIResponse{
+				Code:    http.StatusUnauthorized,
+				Message: "email or password incorrect",
+			})
+		}
+
+		h.Logger.Error("Database error during login",
 			zap.String("email", req.Email),
 			zap.Error(err),
 		)
-		return c.JSON(http.StatusUnauthorized, model.APIResponse{
-			Code:    http.StatusUnauthorized,
-			Message: "email or password incorrect",
+		return c.JSON(http.StatusInternalServerError, model.APIResponse{
+			Code:    http.StatusInternalServerError,
+			Message: "internal server error",
 		})
 	}
 
@@ -457,13 +467,23 @@ func (h *UserHandler) RefreshToken(c echo.Context) error {
 	// 5. Fetch current user data.
 	user, err := h.Repo.GetUserByID(userID)
 	if err != nil {
-		h.Logger.Warn("User not found during token refresh",
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			h.Logger.Warn("User not found during token refresh",
+				zap.Uint("user_id", userID),
+			)
+
+			return c.JSON(http.StatusUnauthorized, echo.Map{
+				"error": "invalid or expired refresh token",
+			})
+		}
+
+		h.Logger.Error("Database error during token refresh",
 			zap.Uint("user_id", userID),
 			zap.Error(err),
 		)
 
-		return c.JSON(http.StatusUnauthorized, echo.Map{
-			"error": "invalid or expired refresh token",
+		return c.JSON(http.StatusInternalServerError, echo.Map{
+			"error": "internal server error",
 		})
 	}
 
@@ -578,6 +598,9 @@ func (h *UserHandler) RefreshToken(c echo.Context) error {
 // @Param update body model.UpdateUserRequest true "Update Payload"
 // @Success 200 {object} map[string]string "user updated"
 // @Failure 400 {object} map[string]string "validation or bad request"
+// @Failure 401 {object} map[string]string "unauthorized"
+// @Failure 404 {object} map[string]string "user not found"
+// @Failure 409 {object} map[string]string "phone already exists or duplicate entry"
 // @Failure 500 {object} map[string]string "internal error"
 // @Router /auth/update [put]
 func (h *UserHandler) UpdateUser(c echo.Context) error {
@@ -605,6 +628,18 @@ func (h *UserHandler) UpdateUser(c echo.Context) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return c.JSON(http.StatusNotFound, echo.Map{
 				"error": "user not found",
+			})
+		}
+
+		if errors.Is(err, repository.ErrPhoneAlreadyExists) {
+			return c.JSON(http.StatusConflict, echo.Map{
+				"error": "phone already exists",
+			})
+		}
+
+		if errors.Is(err, repository.ErrDuplicateEntry) {
+			return c.JSON(http.StatusConflict, echo.Map{
+				"error": "duplicate entry",
 			})
 		}
 

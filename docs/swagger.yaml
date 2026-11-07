@@ -222,29 +222,6 @@ paths:
       summary: Change user password
       tags:
       - User
-  /auth/delete:
-    delete:
-      description: Deletes the authenticated user’s account permanently
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: user deleted
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: internal error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Delete user account
-      tags:
-      - User
   /auth/profile:
     get:
       consumes:
@@ -302,6 +279,24 @@ paths:
             type: object
         "400":
           description: validation or bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: user not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: phone already exists or duplicate entry
           schema:
             additionalProperties:
               type: string

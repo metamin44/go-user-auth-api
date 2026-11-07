@@ -223,6 +223,22 @@ func (r *UserRepo) UpdateUserProfile(
 		})
 
 	if result.Error != nil {
+		var mysqlErr *mysqlDriver.MySQLError
+
+		if errors.As(result.Error, &mysqlErr) && mysqlErr.Number == 1062 {
+			switch {
+			case strings.Contains(mysqlErr.Message, "uni_users_phone"):
+				r.Logger.Warn(
+					"Duplicate phone detected during profile update",
+					zap.Uint("user_id", id),
+				)
+				return ErrPhoneAlreadyExists
+
+			default:
+				return ErrDuplicateEntry
+			}
+		}
+
 		r.Logger.Error(
 			"Failed to update user profile",
 			zap.Uint("user_id", id),
@@ -230,9 +246,19 @@ func (r *UserRepo) UpdateUserProfile(
 		)
 		return result.Error
 	}
+
 	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		var existingUser model.User
+
+		err := r.DB.Select("id").First(&existingUser, id).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return gorm.ErrRecordNotFound
+			}
+			return err
+		}
 	}
+
 	r.Logger.Info(
 		"User profile updated successfully",
 		zap.Uint("user_id", id),

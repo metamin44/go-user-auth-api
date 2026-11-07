@@ -89,6 +89,67 @@ func TestUpdateUser(t *testing.T) {
 		assert.Equal(t, "Normalized User", updatedUser.Name)
 		assert.Equal(t, "09888888888", updatedUser.Phone)
 	})
+	t.Run("Duplicate_Phone", func(t *testing.T) {
+		// Get the original user.
+		user, err := h.Repo.GetUserByEmail("testuser@example.com")
+		require.NoError(t, err)
+
+		// Create another user with a different phone number.
+		otherUser := &model.User{
+			Name:     "Another User",
+			Email:    "anotheruser@example.com",
+			Phone:    "09111111111",
+			Password: "hashed-test-password",
+			Role:     "user",
+		}
+
+		// Clean up a possible record from a previous test run.
+		h.Repo.DB.Where("email = ?", otherUser.Email).Delete(&model.User{})
+
+		err = h.Repo.CreateUser(otherUser)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			err := h.Repo.DB.
+				Where("email = ?", otherUser.Email).
+				Delete(&model.User{}).Error
+
+			if err != nil {
+				t.Errorf("failed to clean up test user: %v", err)
+			}
+		})
+
+		// Generate access token for the original user.
+		token, err := tokenutil.GenerateAccessToken(
+			user.ID, user.Role, user.TokenVersion, h.Cfg,
+		)
+		require.NoError(t, err)
+
+		// Try to use the other user's phone number.
+		updateBody := model.UpdateUserRequest{
+			Name:  "Updated User",
+			Phone: otherUser.Phone,
+		}
+
+		bodyBytes, err := json.Marshal(updateBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(
+			http.MethodPut,
+			"/auth/update",
+			bytes.NewReader(bodyBytes),
+		)
+		req.Header.Set(echo.HeaderAuthorization, "Bearer "+token)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("user_id", user.ID)
+
+		err = h.UpdateUser(c)
+		require.NoError(t, err)
+
+		assert.Equal(t, http.StatusConflict, rec.Code)
+	})
 
 	t.Run("Invalid_Request_Body", func(t *testing.T) {
 		user, _ := h.Repo.GetUserByEmail("testuser@example.com")
