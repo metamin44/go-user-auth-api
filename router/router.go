@@ -38,10 +38,19 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.Token
 	if err != nil {
 		log.Fatal("Failed to initialize rate limiter: ", err)
 	}
+	refreshLimiter, err := middle.RateLimiter(cfg.RateLimit.Refresh)
+	if err != nil {
+		log.Fatal("Failed to initialize refresh rate limiter: ", err)
+	}
+
+	resetPasswordLimiter, err := middle.RateLimiter(cfg.RateLimit.ResetPassword)
+	if err != nil {
+		log.Fatal("Failed to initialize reset password rate limiter: ", err)
+	}
 
 	e.POST("/register", h.Register, registerLimiter)
 	e.POST("/login", h.Login, loginLimiter)
-	e.POST("/refresh", h.RefreshToken)
+	e.POST("/refresh", h.RefreshToken, refreshLimiter)
 
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
@@ -57,7 +66,7 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.Token
 
 	e.POST("/forgot-password", h.ForgotPassword, forgotPassLimiter)
 	e.GET("/reset-password", h.ShowResetPasswordPage)
-	e.POST("/reset-password", h.ResetPassword)
+	e.POST("/reset-password", h.ResetPassword, resetPasswordLimiter)
 
 	auth := e.Group("/auth")
 	auth.Use(middle.JWTMiddleware(cfg, userRepo))

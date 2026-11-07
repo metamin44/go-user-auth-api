@@ -48,6 +48,8 @@ type RateLimitConfig struct {
 	Register       string
 	Login          string
 	ForgotPassword string
+	Refresh        string
+	ResetPassword  string
 }
 
 func LoadConfig() *Config {
@@ -95,6 +97,8 @@ func LoadConfig() *Config {
 			Register:       getEnv("RATE_LIMIT_REGISTER", ""),
 			Login:          getEnv("RATE_LIMIT_LOGIN", ""),
 			ForgotPassword: getEnv("RATE_LIMIT_FORGOT_PASSWORD", ""),
+			Refresh:        getEnv("RATE_LIMIT_REFRESH", "10-M"),
+			ResetPassword:  getEnv("RATE_LIMIT_RESET_PASSWORD", "5-M"),
 		},
 	}
 
