@@ -1043,8 +1043,20 @@ func (h *UserHandler) PromoteToAdmin(c echo.Context) error {
 	// Step 1: Check if user exists
 	user, err := h.Repo.GetUserByID(req.UserID)
 	if err != nil {
-		h.Logger.Warn("Attempted to promote non-existent user", zap.Uint("user_id", req.UserID), zap.Error(err))
-		return c.JSON(http.StatusNotFound, echo.Map{"error": "user not found"})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			h.Logger.Warn(
+				"Attempted to promote non-existent user",
+				zap.Uint("user_id", req.UserID),
+			)
+			return c.JSON(http.StatusNotFound, echo.Map{"error": "user not found"})
+		}
+
+		h.Logger.Error(
+			"Failed to retrieve user for promotion",
+			zap.Uint("user_id", req.UserID),
+			zap.Error(err),
+		)
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "internal server error"})
 	}
 
 	// Step 2: Promote user

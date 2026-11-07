@@ -966,7 +966,19 @@ func TestDeleteUser(t *testing.T) {
 	t.Run("delete user successfully", func(t *testing.T) {
 		repo, userID := setupRepositoryTest(t)
 
-		err := repo.DeleteUser(userID)
+		sessionID := fmt.Sprintf("delete-session-%d", time.Now().UnixNano())
+
+		err := repo.CreateSession(
+			userID,
+			sessionID,
+			"test-refresh-token",
+			time.Now().Add(24*time.Hour),
+		)
+		if err != nil {
+			t.Fatalf("failed to create test session: %v", err)
+		}
+
+		err = repo.DeleteUser(userID)
 		if err != nil {
 			t.Fatalf("expected user deletion to succeed, got: %v", err)
 		}
@@ -974,6 +986,14 @@ func TestDeleteUser(t *testing.T) {
 		_, err = repo.GetUserByID(userID)
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			t.Errorf("expected user to be deleted, got error: %v", err)
+		}
+
+		var session model.UserSession
+		err = repo.DB.Where("session_id = ?", sessionID).
+			First(&session).Error
+
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Errorf("expected session to be deleted, got error: %v", err)
 		}
 	})
 
