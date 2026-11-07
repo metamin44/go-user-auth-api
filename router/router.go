@@ -15,6 +15,7 @@ import (
 
 func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.TokenUserRepository) *echo.Echo {
 	e := echo.New()
+	e.IPExtractor = echo.ExtractIPDirect()
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `time=${time_rfc3339} method=${method} path=${path} status=${status} latency=${latency_human} remote_ip=${remote_ip}` + "\n",
