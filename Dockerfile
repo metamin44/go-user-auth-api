@@ -1,6 +1,6 @@
 # Dockerfile
 
-FROM golang:1.24.3-alpine
+FROM golang:1.27.3-alpine
 
 # Install necessary build tools
 RUN apk add --no-cache gcc g++ make

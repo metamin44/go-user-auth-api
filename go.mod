@@ -1,6 +1,6 @@
 module reg
 
-go 1.24.3
+go 1.27.3
 
 require (
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
