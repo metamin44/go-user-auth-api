@@ -14,6 +14,37 @@ jobs:
     name: Test and Build
     runs-on: ubuntu-latest
 
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: test_root_password
+          MYSQL_DATABASE: userdb
+          MYSQL_USER: user
+          MYSQL_PASSWORD: test_db_password
+        ports:
+          - 3320:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ptest_root_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DB_USER: user
+      DB_PASS: test_db_password
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3320"
+      DB_NAME: userdb
+
+      JWT_SIGN_KEY: test-signing-key-for-ci-only
+      JWT_REFRESH_KEY: test-refresh-key-for-ci-only
+      JWT_RESET_KEY: test-reset-key-for-ci-only
+
+      ENABLE_EMAIL: "false"
+      ENABLE_LOGS: "false"
+      RUN_MIGRATION: "true"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,7 +67,7 @@ jobs:
         run: go vet ./...
 
       - name: Run tests
-        run: go test -race -count=1 ./...
+        run: go test -p 1 -race -count=1 ./...
 
       - name: Build
         run: go build ./...

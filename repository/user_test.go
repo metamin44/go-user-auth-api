@@ -3,6 +3,7 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -17,8 +18,12 @@ import (
 func setupRepositoryTest(t *testing.T) (*UserRepo, uint) {
 	t.Helper()
 
+	// Load .env if available (local development).
+	// CI environments provide configuration through environment variables.
 	if err := godotenv.Load("../.env"); err != nil {
-		t.Fatalf("failed to load .env: %v", err)
+		if !os.IsNotExist(err) {
+			t.Fatalf("failed to load .env: %v", err)
+		}
 	}
 
 	cfg := config.LoadConfig()

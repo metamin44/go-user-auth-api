@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"os"
 	"reg/config"
 	"reg/model"
 	"reg/repository"
@@ -35,10 +36,12 @@ func insertKnownUser(handler *UserHandler) {
 func setup(t *testing.T) (*echo.Echo, *UserHandler) {
 	t.Helper()
 
-	// Load .env from project root
-	err := godotenv.Load("../.env")
-	if err != nil {
-		t.Fatalf("❌ failed to load .env: %v", err)
+	// Load .env if available (local development).
+	// CI environments provide configuration through environment variables.
+	if err := godotenv.Load("../.env"); err != nil {
+		if !os.IsNotExist(err) {
+			t.Fatalf("failed to load .env: %v", err)
+		}
 	}
 
 	// Load config
