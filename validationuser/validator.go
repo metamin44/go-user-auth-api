@@ -39,13 +39,25 @@ func ValidatePhone(phone string) error {
 	)
 }
 
-func ValidatePassword(password string) error {
-	return ozzo.Validate(password,
+func validatePassword(password string, fieldName string) error {
+	if err := ozzo.Validate(password,
 		ozzo.Required,
 		ozzo.Match(passwordRegex).Error(
-			"Password must contain at least 8 characters without spaces.",
+			fieldName+" must contain at least 8 characters without spaces.",
 		),
-	)
+	); err != nil {
+		return err
+	}
+
+	if len(password) > 72 {
+		return fmt.Errorf("%s must not exceed 72 bytes.", fieldName)
+	}
+
+	return nil
+}
+
+func ValidatePassword(password string) error {
+	return validatePassword(password, "Password")
 }
 
 func ValidateUpdateUser(req *model.UpdateUserRequest) error {
@@ -82,14 +94,25 @@ func ValidateChangePassword(req *model.ChangePasswordRequest) error {
 	return ozzo.ValidateStruct(req,
 		ozzo.Field(&req.OldPassword, ozzo.Required),
 		ozzo.Field(&req.NewPassword,
-			ozzo.Required,
-			ozzo.Match(passwordRegex).Error(
-				"New password must contain at least 8 characters without spaces",
-			),
+			ozzo.By(func(value interface{}) error {
+				password, ok := value.(string)
+				if !ok {
+					return fmt.Errorf("new password must be a string")
+				}
+				return validatePassword(password, "New password")
+			}),
 		),
 	)
 }
 
 func ValidateLoginPassword(password string) error {
-	return ozzo.Validate(password, ozzo.Required)
+	if err := ozzo.Validate(password, ozzo.Required); err != nil {
+		return err
+	}
+
+	if len(password) > 72 {
+		return fmt.Errorf("Password must not exceed 72 bytes.")
+	}
+
+	return nil
 }

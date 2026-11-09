@@ -2,6 +2,7 @@ package validationuser
 
 import (
 	"reg/model"
+	"strings"
 	"testing"
 )
 
@@ -86,6 +87,8 @@ func TestValidatePassword(t *testing.T) {
 		{"underscore is allowed", "Secret_123", false},
 		{"dollar sign is allowed", "Secret$123", false},
 		{"password with spaces", "Secret 123", true},
+		{"maximum bcrypt password length (72 bytes)", strings.Repeat("A", 72), false},
+		{"password exceeds bcrypt limit (73 bytes)", strings.Repeat("A", 73), true},
 	}
 
 	for _, tt := range tests {
@@ -106,6 +109,13 @@ func TestValidateLoginPassword(t *testing.T) {
 
 	if err := ValidateLoginPassword(""); err == nil {
 		t.Error("expected empty password to be invalid")
+	}
+	if err := ValidateLoginPassword(strings.Repeat("A", 72)); err != nil {
+		t.Errorf("expected 72-byte password to be valid, got %v", err)
+	}
+
+	if err := ValidateLoginPassword(strings.Repeat("A", 73)); err == nil {
+		t.Error("expected password longer than 72 bytes to be invalid")
 	}
 }
 
@@ -154,5 +164,13 @@ func TestValidateChangePassword(t *testing.T) {
 
 	if err := ValidateChangePassword(invalid); err == nil {
 		t.Error("expected empty old password to be invalid")
+	}
+	tooLong := &model.ChangePasswordRequest{
+		OldPassword: "OldSecret123!",
+		NewPassword: strings.Repeat("A", 73),
+	}
+
+	if err := ValidateChangePassword(tooLong); err == nil {
+		t.Error("expected new password longer than 72 bytes to be invalid")
 	}
 }
