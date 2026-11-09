@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
@@ -35,6 +36,19 @@ var (
 	ErrRefreshTokenReuse          = errors.New("refresh token reuse detected")
 	ErrInvalidOrExpiredResetToken = errors.New("invalid or expired reset token")
 )
+
+func (r *UserRepo) Ping(ctx context.Context) error {
+	if r == nil || r.DB == nil {
+		return errors.New("database connection is not initialized")
+	}
+
+	sqlDB, err := r.DB.DB()
+	if err != nil {
+		return err
+	}
+
+	return sqlDB.PingContext(ctx)
+}
 
 func NewUserRepo(cfg *config.Config) (*UserRepo, error) {
 	logger := zap.L()

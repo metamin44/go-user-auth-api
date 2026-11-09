@@ -1,10 +1,13 @@
 package router
 
 import (
+	"context"
 	"log"
+	"net/http"
 	"reg/config"
 	"reg/handler"
 	middle "reg/middleware"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -23,6 +26,39 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.Token
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 	e.Use(middle.MetricsMiddleware)
+
+	// Liveness check: confirms that the application is running.
+	e.GET("/health", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ok",
+		})
+	})
+
+	// Readiness check: confirms that the application can access the database.
+	e.GET("/ready", func(c echo.Context) error {
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+		defer cancel()
+
+		pinger, ok := userRepo.(interface {
+			Ping(context.Context) error
+		})
+
+		if !ok {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"status": "not ready",
+			})
+		}
+
+		if err := pinger.Ping(ctx); err != nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"status": "not ready",
+			})
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ready",
+		})
+	})
 
 	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
