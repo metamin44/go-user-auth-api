@@ -1,0 +1,30 @@
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+# IDE and editor files
+.idea
+.vscode
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# Build artifacts and test outputs
+main
+*.test
+*.out
+coverage/
+
+# Docker Compose and monitoring configuration
+docker-compose*.yml
+prometheus.yml
+
+# Documentation
+README*
