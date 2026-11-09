@@ -341,8 +341,10 @@ func (r *UserRepo) UpdatePassword(id uint, hashedPassword string) error {
 	result := r.DB.Model(&model.User{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"password":      hashedPassword,
-			"token_version": gorm.Expr("token_version + 1"),
+			"password":           hashedPassword,
+			"token_version":      gorm.Expr("token_version + 1"),
+			"reset_token":        nil,
+			"reset_token_expiry": nil,
 		})
 
 	if result.Error != nil {
@@ -357,7 +359,7 @@ func (r *UserRepo) UpdatePassword(id uint, hashedPassword string) error {
 		return gorm.ErrRecordNotFound
 	}
 
-	r.Logger.Info("Password updated and existing tokens revoked",
+	r.Logger.Info("Password updated, existing tokens revoked, and reset token cleared",
 		zap.Uint("user_id", id),
 	)
 

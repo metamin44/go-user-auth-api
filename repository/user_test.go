@@ -735,13 +735,29 @@ func TestGetUserByID(t *testing.T) {
 		}
 	})
 }
+
 func TestUpdatePassword(t *testing.T) {
-	t.Run("update password successfully and increment token version", func(t *testing.T) {
+	t.Run("update password successfully, increment token version, and clear reset token", func(t *testing.T) {
 		repo, userID := setupRepositoryTest(t)
+
+		resetTokenHash := "hashed-reset-token-before-password-change"
+		resetExpiry := time.Now().Add(time.Hour)
+
+		if err := repo.SavePasswordResetToken(
+			userID,
+			resetTokenHash,
+			resetExpiry,
+		); err != nil {
+			t.Fatalf("failed to save reset token: %v", err)
+		}
 
 		userBefore, err := repo.GetUserByID(userID)
 		if err != nil {
 			t.Fatalf("failed to get user before update: %v", err)
+		}
+
+		if userBefore.ResetToken == nil || userBefore.ResetTokenExpiry == nil {
+			t.Fatal("expected reset token and expiry to be saved before password change")
 		}
 
 		newHashedPassword := "new-test-password-hash"
@@ -767,6 +783,25 @@ func TestUpdatePassword(t *testing.T) {
 				userAfter.TokenVersion,
 			)
 		}
+
+		if userAfter.ResetToken != nil {
+			t.Errorf("expected reset token to be nil, got %q", *userAfter.ResetToken)
+		}
+
+		if userAfter.ResetTokenExpiry != nil {
+			t.Errorf("expected reset token expiry to be nil, got %v", *userAfter.ResetTokenExpiry)
+		}
+
+		// The previously issued reset token must no longer be usable.
+		err = repo.CompletePasswordReset(
+			userID,
+			"another-password-hash",
+			resetTokenHash,
+			time.Now(),
+		)
+		if !errors.Is(err, ErrInvalidOrExpiredResetToken) {
+			t.Errorf("expected ErrInvalidOrExpiredResetToken after password change, got: %v", err)
+		}
 	})
 
 	t.Run("user not found", func(t *testing.T) {
@@ -778,6 +813,7 @@ func TestUpdatePassword(t *testing.T) {
 		}
 	})
 }
+
 func TestCompletePasswordReset(t *testing.T) {
 	t.Run("complete password reset successfully", func(t *testing.T) {
 		repo, userID := setupRepositoryTest(t)
