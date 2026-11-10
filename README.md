@@ -535,6 +535,9 @@ The CI workflow runs the following checks:
 A MySQL 8 service is provisioned during the workflow to support
 database-dependent tests.
 
+For a detailed explanation of the workflow and local verification commands,
+see the [CI Pipeline Guide](docs/ci-pipeline.md).
+
 The workflow configuration is available at:
 
 ```text
@@ -552,6 +555,19 @@ starting the application:
 
 Use Swagger UI to explore the API endpoints and test supported requests.
 
+## Developer Documentation
+
+- [Quick Demo](docs/quick-demo.md) — Start the services and try the main API endpoints.
+- [CI Pipeline Guide](docs/ci-pipeline.md) — Detailed explanation of the automated checks.
+
+### Architecture Decision Records (ADRs)
+
+- [ADR 0001: Refresh Token Rotation](docs/decisions/0001-refresh-token-rotation.md)
+- [ADR 0002: Concurrent Refresh Token Requests](docs/decisions/0002-refresh-token-concurrency.md)
+- [ADR 0003: Password Reset Security](docs/decisions/0003-password-reset-security.md)
+- [ADR 0004: JWT Token Versioning](docs/decisions/0004-jwt-token-versioning.md)
+- [ADR 0005: Rate Limiting](docs/decisions/0005-rate-limiting.md)
+
 ## Project Structure
 
 ```text
@@ -561,7 +577,15 @@ Use Swagger UI to explore the API endpoints and test supported requests.
 ├── config/
 │   └── config.go
 ├── docs/
+│   ├── decisions/
+│   │   ├── 0001-refresh-token-rotation.md
+│   │   ├── 0002-refresh-token-concurrency.md
+│   │   ├── 0003-password-reset-security.md
+│   │   ├── 0004-jwt-token-versioning.md
+│   │   └── 0005-rate-limiting.md
 │   ├── docs.go
+│   ├── quick-demo.md
+│   ├── ci-pipeline.md
 │   ├── swagger.json
 │   └── swagger.yaml
 ├── handler/
