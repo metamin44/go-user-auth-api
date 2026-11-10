@@ -297,9 +297,8 @@ The project implements an end-to-end password recovery workflow.
 
 9.  The password is securely hashed with bcrypt and updated.
 
-10. The reset token is invalidated, and previously issued authentication
-    tokens and sessions are invalidated according to the application's
-    token and session management logic.
+10. The reset token is invalidated, and previously issued
+    authentication tokens are invalidated through token versioning.
 
 Reset tokens have a **15-minute validity period**.
 
@@ -365,6 +364,10 @@ The authentication flow includes:
 - Separate signing keys for different token types.
 
 - Refresh token rotation when a refresh request succeeds.
+
+- Refresh token rotation is performed inside a database transaction
+  using row-level locking to prevent concurrent updates to the same
+  session.
 
 - SHA-256 hashes of refresh tokens stored in the database.
 
@@ -517,6 +520,27 @@ go test -count=1 ./repository -v
 go test -count=1 ./validationuser -v
 ```
 
+## Continuous Integration (CI)
+
+The project uses GitHub Actions to automatically validate changes
+pushed to the `main` branch and pull requests targeting `main`.
+
+The CI workflow runs the following checks:
+
+- Go formatting verification using `gofmt`.
+- Static analysis using `go vet`.
+- Automated tests with the Go race detector enabled.
+- Build verification using `go build`.
+
+A MySQL 8 service is provisioned during the workflow to support
+database-dependent tests.
+
+The workflow configuration is available at:
+
+```text
+.github/workflows/go.yml
+```
+
 ## API Documentation
 
 Swagger documentation is generated with Swaggo and is available after
@@ -531,7 +555,9 @@ Use Swagger UI to explore the API endpoints and test supported requests.
 ## Project Structure
 
 ```text
-.
+├── .github/
+│   └── workflows/
+│       └── go.yml
 ├── config/
 │   └── config.go
 ├── docs/
@@ -576,9 +602,11 @@ Use Swagger UI to explore the API endpoints and test supported requests.
 ├── docker-compose.yml
 ├── prometheus.yml
 ├── .env.example
+├── .dockerignore
 ├── .gitignore
 ├── go.mod
-└── go.sum
+├── go.sum
+└── README.md
 ```
 
 ## Author
