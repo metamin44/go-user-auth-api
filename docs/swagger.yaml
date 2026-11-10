@@ -222,6 +222,35 @@ paths:
       summary: Change user password
       tags:
       - User
+  /auth/delete:
+    delete:
+      description: Deletes the authenticated user’s account permanently
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: user deleted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete user account
+      tags:
+      - User
   /auth/profile:
     get:
       consumes:
@@ -388,6 +417,47 @@ paths:
       summary: User login
       tags:
       - auth
+  /refresh:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Generate a new access token using a valid refresh token
+      parameters:
+      - description: Refresh Token
+        in: formData
+        name: refresh_token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: access_token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: invalid refresh token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: could not create new token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Refresh JWT access token
+      tags:
+      - Auth
   /register:
     post:
       consumes:

@@ -408,7 +408,6 @@ func (h *UserHandler) Profile(c echo.Context) error {
 // @Failure 401 {object} map[string]string "invalid refresh token"
 // @Failure 500 {object} map[string]string "could not create new token"
 // @Router /refresh [post]
-
 func (h *UserHandler) RefreshToken(c echo.Context) error {
 	refreshToken := c.FormValue("refresh_token")
 
@@ -667,8 +666,8 @@ func (h *UserHandler) UpdateUser(c echo.Context) error {
 // @Security BearerAuth
 // @Success 200 {object} map[string]string "user deleted"
 // @Failure 500 {object} map[string]string "internal error"
+// @Failure 401 {object} map[string]string "unauthorized"
 // @Router /auth/delete [delete]
-
 func (h *UserHandler) DeleteUser(c echo.Context) error {
 	userID, ok := c.Get("user_id").(uint)
 	if !ok {
