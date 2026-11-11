@@ -52,6 +52,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      app1:
+        condition: service_healthy
     environment:
       DB_HOST: db
       DB_PORT: 3306
