@@ -26,11 +26,33 @@ func TestAccessTokenRevokedAfterPasswordChange(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, user.TokenVersion)
 
-	// Generate an access token using the current token version.
-	oldToken, err := tokenutil.GenerateAccessToken(
+	// Create an active session for the access token.
+	sessionID, err := tokenutil.GenerateSessionID()
+	require.NoError(t, err)
+
+	refreshToken, err := tokenutil.GenerateRefreshToken(
 		user.ID,
 		user.Role,
 		user.TokenVersion,
+		sessionID,
+		h.Cfg,
+	)
+	require.NoError(t, err)
+
+	err = h.Repo.CreateSession(
+		user.ID,
+		sessionID,
+		refreshToken,
+		time.Now().Add(h.Cfg.JWT.RefreshTTL),
+	)
+	require.NoError(t, err)
+
+	// Generate an access token linked to the active session.
+	oldToken, err := tokenutil.GenerateAccessTokenWithSession(
+		user.ID,
+		user.Role,
+		user.TokenVersion,
+		sessionID,
 		h.Cfg,
 	)
 	require.NoError(t, err)
@@ -106,7 +128,6 @@ func TestRefreshTokenRevokedAfterPasswordChange(t *testing.T) {
 	require.NotZero(t, user.TokenVersion)
 
 	// Generate a refresh token using the current token version.
-
 	sessionID, err := tokenutil.GenerateSessionID()
 	require.NoError(t, err)
 

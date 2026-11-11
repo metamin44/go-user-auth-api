@@ -259,23 +259,6 @@ func (h *UserHandler) Login(c echo.Context) error {
 		})
 	}
 
-	accessToken, err := tokenutil.GenerateAccessToken(
-		user.ID,
-		user.Role,
-		user.TokenVersion,
-		h.Cfg,
-	)
-	if err != nil {
-		h.Logger.Error("Failed to generate access token",
-			zap.Uint("user_id", user.ID),
-			zap.Error(err),
-		)
-		return c.JSON(http.StatusInternalServerError, model.APIResponse{
-			Code:    http.StatusInternalServerError,
-			Message: "could not generate tokens",
-		})
-	}
-
 	// Generate a unique session ID.
 	sessionID, err := tokenutil.GenerateSessionID()
 	if err != nil {
@@ -286,6 +269,25 @@ func (h *UserHandler) Login(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, model.APIResponse{
 			Code:    http.StatusInternalServerError,
 			Message: "could not create user session",
+		})
+	}
+
+	// Generate access token linked to the session.
+	accessToken, err := tokenutil.GenerateAccessTokenWithSession(
+		user.ID,
+		user.Role,
+		user.TokenVersion,
+		sessionID,
+		h.Cfg,
+	)
+	if err != nil {
+		h.Logger.Error("Failed to generate access token",
+			zap.Uint("user_id", user.ID),
+			zap.Error(err),
+		)
+		return c.JSON(http.StatusInternalServerError, model.APIResponse{
+			Code:    http.StatusInternalServerError,
+			Message: "could not generate tokens",
 		})
 	}
 
@@ -501,13 +503,13 @@ func (h *UserHandler) RefreshToken(c echo.Context) error {
 	tokenVersion := user.TokenVersion
 
 	// 7. Generate new access token.
-	accessToken, err := tokenutil.GenerateAccessToken(
+	accessToken, err := tokenutil.GenerateAccessTokenWithSession(
 		user.ID,
 		role,
 		tokenVersion,
+		sessionID,
 		h.Cfg,
 	)
-
 	if err != nil {
 		h.Logger.Error("Failed to generate access token",
 			zap.Uint("user_id", userID),

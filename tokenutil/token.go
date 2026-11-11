@@ -38,6 +38,30 @@ func GenerateAccessToken(
 	)
 }
 
+// GenerateAccessTokenWithSession creates an access token linked to a session.
+func GenerateAccessTokenWithSession(
+	userID uint,
+	role string,
+	tokenVersion uint64,
+	sessionID string,
+	cfg *config.Config,
+) (string, error) {
+	if sessionID == "" {
+		return "", errors.New("session ID cannot be empty")
+	}
+
+	return generateToken(
+		userID,
+		role,
+		tokenVersion,
+		"",
+		sessionID,
+		TokenTypeAccess,
+		cfg.JWT.SignKey,
+		cfg.JWT.AccessTTL,
+	)
+}
+
 // GenerateRefreshToken creates a signed refresh token linked to a session.
 func GenerateRefreshToken(
 	userID uint,

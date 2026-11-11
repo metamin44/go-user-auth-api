@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	middle "reg/middleware"
 	"reg/model"
 	"reg/tokenutil"
 	"strings"
@@ -79,6 +80,26 @@ func TestRefreshToken(t *testing.T) {
 		assert.NotEmpty(t, resp.AccessToken)
 		assert.NotEmpty(t, resp.RefreshToken)
 		assert.NotEqual(t, oldRefreshToken, resp.RefreshToken)
+		// Verify that the newly issued access token is still valid.
+		authE := echo.New()
+		auth := authE.Group("/auth")
+		auth.Use(middle.JWTMiddleware(h.Cfg, h.Repo))
+		auth.GET("/profile", h.Profile)
+
+		profileReq := httptest.NewRequest(
+			http.MethodGet,
+			"/auth/profile",
+			nil,
+		)
+		profileReq.Header.Set(
+			echo.HeaderAuthorization,
+			"Bearer "+resp.AccessToken,
+		)
+
+		profileRec := httptest.NewRecorder()
+		authE.ServeHTTP(profileRec, profileReq)
+
+		assert.Equal(t, http.StatusOK, profileRec.Code)
 
 		// Second refresh using the old token: should fail.
 		form = url.Values{}
@@ -108,6 +129,26 @@ func TestRefreshToken(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.NotNil(t, session.RevokedAt)
+		// Verify that the access token from the revoked session is rejected.
+		revokedAuthE := echo.New()
+		revokedAuth := revokedAuthE.Group("/auth")
+		revokedAuth.Use(middle.JWTMiddleware(h.Cfg, h.Repo))
+		revokedAuth.GET("/profile", h.Profile)
+
+		revokedProfileReq := httptest.NewRequest(
+			http.MethodGet,
+			"/auth/profile",
+			nil,
+		)
+		revokedProfileReq.Header.Set(
+			echo.HeaderAuthorization,
+			"Bearer "+resp.AccessToken,
+		)
+
+		revokedProfileRec := httptest.NewRecorder()
+		revokedAuthE.ServeHTTP(revokedProfileRec, revokedProfileReq)
+
+		assert.Equal(t, http.StatusUnauthorized, revokedProfileRec.Code)
 
 		// Even the newly issued token should now be rejected.
 		form = url.Values{}

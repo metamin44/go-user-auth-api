@@ -467,6 +467,38 @@ func (r *UserRepo) GetTokenVersion(userID uint) (uint64, error) {
 	return user.TokenVersion, nil
 }
 
+// IsSessionActive checks whether a user's session exists and is active.
+func (r *UserRepo) IsSessionActive(
+	userID uint,
+	sessionID string,
+) (bool, error) {
+	if userID == 0 || sessionID == "" {
+		return false, errors.New("user ID and session ID are required")
+	}
+
+	var session model.UserSession
+
+	err := r.DB.
+		Select("id").
+		Where(
+			"user_id = ? AND session_id = ? AND revoked_at IS NULL AND expires_at > ?",
+			userID,
+			sessionID,
+			time.Now(),
+		).
+		First(&session).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
 func hashRefreshToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(hash[:])

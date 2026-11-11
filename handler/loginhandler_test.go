@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reg/tokenutil"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -110,6 +111,29 @@ func TestLogin(t *testing.T) {
 						"Expected a non-empty access token")
 					assert.NotEmpty(t, resp.Data.RefreshToken,
 						"Expected a non-empty refresh token")
+					accessClaims, err := tokenutil.ParseToken(
+						resp.Data.AccessToken,
+						h.Cfg.JWT.SignKey,
+						tokenutil.TokenTypeAccess,
+					)
+					assert.NoError(t, err)
+
+					refreshClaims, err := tokenutil.ParseToken(
+						resp.Data.RefreshToken,
+						h.Cfg.JWT.RefreshKey,
+						tokenutil.TokenTypeRefresh,
+					)
+					assert.NoError(t, err)
+
+					if err == nil && accessClaims != nil && refreshClaims != nil {
+						accessSessionID, accessOK := accessClaims["session_id"].(string)
+						refreshSessionID, refreshOK := refreshClaims["session_id"].(string)
+
+						assert.True(t, accessOK)
+						assert.True(t, refreshOK)
+						assert.NotEmpty(t, accessSessionID)
+						assert.Equal(t, accessSessionID, refreshSessionID)
+					}
 				} else {
 					assert.Contains(t, resp.Message, tc.expectedMessage)
 				}

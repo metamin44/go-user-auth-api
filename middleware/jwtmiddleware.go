@@ -14,6 +14,7 @@ import (
 
 type TokenUserRepository interface {
 	GetTokenVersion(userID uint) (uint64, error)
+	IsSessionActive(userID uint, sessionID string) (bool, error)
 }
 
 func parsePositiveIntegerClaim(claims jwt.MapClaims, claimName string) (uint64, bool) {
@@ -124,6 +125,38 @@ func JWTMiddleware(cfg *config.Config, userRepo TokenUserRepository) echo.Middle
 				)
 				return c.JSON(http.StatusUnauthorized, echo.Map{
 					"error": "token has been revoked",
+				})
+			}
+
+			// Extract session ID from access token.
+			sessionID, ok := claims["session_id"].(string)
+			if !ok || strings.TrimSpace(sessionID) == "" {
+				logger.Warn("Missing or invalid session ID in access token",
+					zap.Uint("user_id", userID),
+				)
+				return c.JSON(http.StatusUnauthorized, echo.Map{
+					"error": "invalid token session",
+				})
+			}
+
+			// Verify that the session is still active.
+			active, err := userRepo.IsSessionActive(userID, sessionID)
+			if err != nil {
+				logger.Error("Failed to verify user session",
+					zap.Uint("user_id", userID),
+					zap.Error(err),
+				)
+				return c.JSON(http.StatusInternalServerError, echo.Map{
+					"error": "authentication service unavailable",
+				})
+			}
+
+			if !active {
+				logger.Warn("Access token belongs to an inactive session",
+					zap.Uint("user_id", userID),
+				)
+				return c.JSON(http.StatusUnauthorized, echo.Map{
+					"error": "session has been revoked or expired",
 				})
 			}
 

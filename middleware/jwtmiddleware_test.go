@@ -17,12 +17,18 @@ import (
 )
 
 type mockTokenUserRepository struct {
-	tokenVersion uint64
-	err          error
+	tokenVersion  uint64
+	err           error
+	sessionActive bool
+	sessionErr    error
 }
 
 func (m *mockTokenUserRepository) GetTokenVersion(userID uint) (uint64, error) {
 	return m.tokenVersion, m.err
+}
+
+func (m *mockTokenUserRepository) IsSessionActive(userID uint, sessionID string) (bool, error) {
+	return m.sessionActive, m.sessionErr
 }
 
 func TestJWTMiddleware(t *testing.T) {
@@ -36,17 +42,20 @@ func TestJWTMiddleware(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		authHeader     string
-		repoVersion    uint64
-		repoErr        error
-		expectedStatus int
+		name              string
+		authHeader        string
+		repoVersion       uint64
+		repoErr           error
+		repoSessionActive bool
+		repoSessionErr    error
+		expectedStatus    int
 	}{
 		{
-			name:           "Valid access token",
-			authHeader:     "VALID_TOKEN",
-			repoVersion:    1,
-			expectedStatus: http.StatusOK,
+			name:              "Valid access token",
+			authHeader:        "VALID_TOKEN",
+			repoVersion:       1,
+			repoSessionActive: true,
+			expectedStatus:    http.StatusOK,
 		},
 		{
 			name:           "Missing authorization header",
@@ -72,6 +81,22 @@ func TestJWTMiddleware(t *testing.T) {
 			repoVersion:    2,
 			expectedStatus: http.StatusUnauthorized,
 		},
+
+		{
+			name:              "Revoked session",
+			authHeader:        "VALID_TOKEN",
+			repoVersion:       1,
+			repoSessionActive: false,
+			expectedStatus:    http.StatusUnauthorized,
+		},
+		{
+			name:              "Session repository error",
+			authHeader:        "VALID_TOKEN",
+			repoVersion:       1,
+			repoSessionActive: true,
+			repoSessionErr:    errors.New("database unavailable"),
+			expectedStatus:    http.StatusInternalServerError,
+		},
 		{
 			name:           "Repository error",
 			authHeader:     "VALID_TOKEN",
@@ -84,17 +109,20 @@ func TestJWTMiddleware(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &mockTokenUserRepository{
-				tokenVersion: tt.repoVersion,
-				err:          tt.repoErr,
+				tokenVersion:  tt.repoVersion,
+				err:           tt.repoErr,
+				sessionActive: tt.repoSessionActive,
+				sessionErr:    tt.repoSessionErr,
 			}
 
 			authHeader := tt.authHeader
 
 			if authHeader == "VALID_TOKEN" {
-				token, err := tokenutil.GenerateAccessToken(
+				token, err := tokenutil.GenerateAccessTokenWithSession(
 					1,
 					"user",
 					1,
+					"test-session",
 					cfg,
 				)
 				require.NoError(t, err)

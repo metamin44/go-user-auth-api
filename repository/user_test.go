@@ -1056,3 +1056,90 @@ func TestDeleteUser(t *testing.T) {
 		}
 	})
 }
+
+func TestIsSessionActive(t *testing.T) {
+	t.Run("active session", func(t *testing.T) {
+		repo, userID := setupRepositoryTest(t)
+
+		sessionID := fmt.Sprintf("active-session-%d", time.Now().UnixNano())
+		refreshToken := fmt.Sprintf("refresh-%d", time.Now().UnixNano())
+
+		err := repo.CreateSession(
+			userID,
+			sessionID,
+			refreshToken,
+			time.Now().Add(time.Hour),
+		)
+		if err != nil {
+			t.Fatalf("failed to create session: %v", err)
+		}
+
+		active, err := repo.IsSessionActive(userID, sessionID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !active {
+			t.Fatal("expected session to be active")
+		}
+	})
+
+	t.Run("revoked session", func(t *testing.T) {
+		repo, userID := setupRepositoryTest(t)
+
+		sessionID := fmt.Sprintf("revoked-session-%d", time.Now().UnixNano())
+
+		err := repo.CreateSession(
+			userID,
+			sessionID,
+			fmt.Sprintf("refresh-%d", time.Now().UnixNano()),
+			time.Now().Add(time.Hour),
+		)
+		if err != nil {
+			t.Fatalf("failed to create session: %v", err)
+		}
+
+		if err := repo.DB.Model(&model.UserSession{}).
+			Where("session_id = ?", sessionID).
+			Update("revoked_at", time.Now()).Error; err != nil {
+			t.Fatalf("failed to revoke session: %v", err)
+		}
+
+		active, err := repo.IsSessionActive(userID, sessionID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if active {
+			t.Fatal("expected revoked session to be inactive")
+		}
+	})
+
+	t.Run("expired session", func(t *testing.T) {
+		repo, userID := setupRepositoryTest(t)
+
+		sessionID := fmt.Sprintf("expired-session-%d", time.Now().UnixNano())
+
+		err := repo.CreateSession(
+			userID,
+			sessionID,
+			fmt.Sprintf("refresh-%d", time.Now().UnixNano()),
+			time.Now().Add(time.Hour),
+		)
+		if err != nil {
+			t.Fatalf("failed to create session: %v", err)
+		}
+
+		if err := repo.DB.Model(&model.UserSession{}).
+			Where("session_id = ?", sessionID).
+			Update("expires_at", time.Now().Add(-time.Hour)).Error; err != nil {
+			t.Fatalf("failed to expire session: %v", err)
+		}
+
+		active, err := repo.IsSessionActive(userID, sessionID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if active {
+			t.Fatal("expected expired session to be inactive")
+		}
+	})
+}
