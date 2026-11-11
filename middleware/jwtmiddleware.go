@@ -1,7 +1,6 @@
 package middle
 
 import (
-	"math"
 	"net/http"
 	"reg/config"
 	"reg/tokenutil"
@@ -15,27 +14,6 @@ import (
 type TokenUserRepository interface {
 	GetTokenVersion(userID uint) (uint64, error)
 	IsSessionActive(userID uint, sessionID string) (bool, error)
-}
-
-func parsePositiveIntegerClaim(claims jwt.MapClaims, claimName string) (uint64, bool) {
-	value, ok := claims[claimName].(float64)
-	if !ok {
-		return 0, false
-	}
-
-	// Reject NaN, infinity, zero, negative, and fractional values.
-	if math.IsNaN(value) || math.IsInf(value, 0) ||
-		value < 1 || math.Trunc(value) != value {
-		return 0, false
-	}
-
-	// float64 cannot represent every integer above 2^53 - 1 exactly.
-	const maxSafeInteger = 1<<53 - 1
-	if value > maxSafeInteger {
-		return 0, false
-	}
-
-	return uint64(value), true
 }
 
 func JWTMiddleware(cfg *config.Config, userRepo TokenUserRepository) echo.MiddlewareFunc {
@@ -85,7 +63,7 @@ func JWTMiddleware(cfg *config.Config, userRepo TokenUserRepository) echo.Middle
 				Claims: claims,
 				Valid:  true,
 			}
-			userIDValue, ok := parsePositiveIntegerClaim(claims, "user_id")
+			userIDValue, ok := tokenutil.ParsePositiveIntegerClaim(claims, "user_id")
 			if !ok || userIDValue > uint64(^uint(0)) {
 				logger.Warn("Invalid user_id in access token")
 				return c.JSON(http.StatusUnauthorized, echo.Map{
@@ -96,7 +74,7 @@ func JWTMiddleware(cfg *config.Config, userRepo TokenUserRepository) echo.Middle
 			userID := uint(userIDValue)
 
 			// Read token version from JWT claims.
-			tokenVersionValue, ok := parsePositiveIntegerClaim(claims, "token_version")
+			tokenVersionValue, ok := tokenutil.ParsePositiveIntegerClaim(claims, "token_version")
 			if !ok {
 				logger.Warn("Invalid token version in access token",
 					zap.Uint("user_id", userID),
@@ -195,7 +173,7 @@ func RequireRole(requiredRole string) echo.MiddlewareFunc {
 				)
 			}
 
-			userIDValue, ok := parsePositiveIntegerClaim(claims, "user_id")
+			userIDValue, ok := tokenutil.ParsePositiveIntegerClaim(claims, "user_id")
 			if !ok || userIDValue > uint64(^uint(0)) {
 				logger.Warn("Missing or invalid user_id in token")
 				return echo.NewHTTPError(

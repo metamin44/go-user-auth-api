@@ -435,8 +435,8 @@ func (h *UserHandler) RefreshToken(c echo.Context) error {
 	}
 
 	// 2. Extract user ID.
-	userIDValue, ok := claims["user_id"].(float64)
-	if !ok || userIDValue <= 0 || userIDValue != float64(uint(userIDValue)) {
+	userIDValue, ok := tokenutil.ParsePositiveIntegerClaim(claims, "user_id")
+	if !ok {
 		return c.JSON(http.StatusUnauthorized, echo.Map{
 			"error": "invalid user ID in token",
 		})
@@ -445,9 +445,8 @@ func (h *UserHandler) RefreshToken(c echo.Context) error {
 	userID := uint(userIDValue)
 
 	// 3. Extract token version.
-	tokenVersionValue, ok := claims["token_version"].(float64)
-	if !ok || tokenVersionValue < 1 ||
-		tokenVersionValue != float64(uint64(tokenVersionValue)) {
+	tokenVersionValue, ok := tokenutil.ParsePositiveIntegerClaim(claims, "token_version")
+	if !ok {
 		return c.JSON(http.StatusUnauthorized, echo.Map{
 			"error": "invalid token version",
 		})
@@ -489,7 +488,7 @@ func (h *UserHandler) RefreshToken(c echo.Context) error {
 	}
 
 	// 6. Check token version.
-	if uint64(tokenVersionValue) != user.TokenVersion {
+	if tokenVersionValue != user.TokenVersion {
 		h.Logger.Warn("Stale refresh token detected",
 			zap.Uint("user_id", userID),
 		)
@@ -953,7 +952,7 @@ func (h *UserHandler) ResetPassword(c echo.Context) error {
 		resetTokenHash,
 		now,
 	); err != nil {
-		if err == repository.ErrInvalidOrExpiredResetToken {
+		if errors.Is(err, repository.ErrInvalidOrExpiredResetToken) {
 			return c.JSON(http.StatusBadRequest, echo.Map{
 				"error": "Token is invalid or expired",
 			})

@@ -370,7 +370,7 @@ func TestParsePositiveIntegerClaim(t *testing.T) {
 				"user_id": tt.value,
 			}
 
-			got, ok := parsePositiveIntegerClaim(claims, "user_id")
+			got, ok := tokenutil.ParsePositiveIntegerClaim(claims, "user_id")
 
 			assert.Equal(t, tt.want, got)
 			assert.Equal(t, tt.wantOK, ok)

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"math"
 	"time"
 
 	"reg/config"
@@ -18,6 +19,28 @@ const (
 
 	TokenIssuer = "go-user-auth-api"
 )
+
+// ParsePositiveIntegerClaim safely parses a positive integer JWT claim.
+func ParsePositiveIntegerClaim(claims jwt.MapClaims, claimName string) (uint64, bool) {
+	value, ok := claims[claimName].(float64)
+	if !ok {
+		return 0, false
+	}
+
+	// Reject NaN, infinity, zero, negative, and fractional values.
+	if math.IsNaN(value) || math.IsInf(value, 0) ||
+		value < 1 || math.Trunc(value) != value {
+		return 0, false
+	}
+
+	// float64 cannot represent every integer above 2^53 - 1 exactly.
+	const maxSafeInteger = 1<<53 - 1
+	if value > maxSafeInteger {
+		return 0, false
+	}
+
+	return uint64(value), true
+}
 
 // GenerateAccessToken creates a signed access token.
 func GenerateAccessToken(
