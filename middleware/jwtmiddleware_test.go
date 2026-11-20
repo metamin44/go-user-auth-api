@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type mockTokenUserRepository struct {
@@ -104,6 +105,13 @@ func TestJWTMiddleware(t *testing.T) {
 			repoErr:        errors.New("database unavailable"),
 			expectedStatus: http.StatusInternalServerError,
 		},
+		{
+			name:           "Deleted user is unauthorized, not a server error",
+			authHeader:     "VALID_TOKEN",
+			repoVersion:    0,
+			repoErr:        gorm.ErrRecordNotFound,
+			expectedStatus: http.StatusUnauthorized,
+		},
 	}
 
 	for _, tt := range tests {
@@ -154,6 +162,7 @@ func TestJWTMiddleware(t *testing.T) {
 			if tt.expectedStatus == http.StatusOK {
 				assert.Equal(t, uint(1), ctx.Get("user_id"))
 				assert.NotNil(t, ctx.Get("user"))
+				assert.Equal(t, "test-session", ctx.Get("session_id"))
 			}
 		})
 	}

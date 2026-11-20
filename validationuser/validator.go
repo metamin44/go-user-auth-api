@@ -50,7 +50,7 @@ func validatePassword(password string, fieldName string) error {
 	}
 
 	if len(password) > 72 {
-		return fmt.Errorf("%s must not exceed 72 bytes.", fieldName)
+		return fmt.Errorf("%s must not exceed 72 bytes", fieldName)
 	}
 
 	return nil
@@ -111,7 +111,7 @@ func ValidateLoginPassword(password string) error {
 	}
 
 	if len(password) > 72 {
-		return fmt.Errorf("Password must not exceed 72 bytes.")
+		return fmt.Errorf("password must not exceed 72 bytes")
 	}
 
 	return nil

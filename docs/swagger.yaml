@@ -133,6 +133,57 @@ paths:
       summary: Admin dashboard
       tags:
       - Admin
+  /admin/demote:
+    put:
+      consumes:
+      - application/json
+      description: Admins can remove the admin role from another admin. Existing tokens
+        of the demoted user are revoked.
+      parameters:
+      - description: User ID payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/request.PromoteUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: admin demoted to user successfully
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: invalid request or self-demotion
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: access denied
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: user not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Demote an admin to user
+      tags:
+      - Admin
   /admin/promote:
     put:
       consumes:
@@ -249,6 +300,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Delete user account
+      tags:
+      - User
+  /auth/logout:
+    post:
+      description: Revokes the session bound to the presented access token. Its access
+        and refresh tokens stop working immediately.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: logged out
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Log out the current session
       tags:
       - User
   /auth/profile:

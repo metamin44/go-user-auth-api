@@ -1,6 +1,7 @@
 package middle
 
 import (
+	"errors"
 	"net/http"
 	"reg/config"
 	"reg/tokenutil"
@@ -9,6 +10,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type TokenUserRepository interface {
@@ -87,6 +89,16 @@ func JWTMiddleware(cfg *config.Config, userRepo TokenUserRepository) echo.Middle
 			// Fetch current token version from database.
 			currentVersion, err := userRepo.GetTokenVersion(userID)
 			if err != nil {
+				// A deleted user is an authentication failure, not a server error.
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					logger.Warn("Access token belongs to a deleted user",
+						zap.Uint("user_id", userID),
+					)
+					return c.JSON(http.StatusUnauthorized, echo.Map{
+						"error": "invalid or expired token",
+					})
+				}
+
 				logger.Error("Failed to retrieve token version",
 					zap.Uint("user_id", userID),
 					zap.Error(err),
@@ -139,13 +151,14 @@ func JWTMiddleware(cfg *config.Config, userRepo TokenUserRepository) echo.Middle
 			}
 
 			// Success
-			logger.Info("✅ Authenticated request",
+			logger.Info("Authenticated request",
 				zap.Uint("user_id", userID),
 				zap.String("path", c.Request().URL.Path),
 			)
 
 			c.Set("user", token) // Set the full token (needed for RequireRole)
 			c.Set("user_id", userID)
+			c.Set("session_id", sessionID) // Needed by logout to revoke this session
 			return next(c)
 		}
 	}

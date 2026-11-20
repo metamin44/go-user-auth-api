@@ -2,8 +2,10 @@ package router
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"reg/config"
 	"reg/handler"
 	middle "reg/middleware"
@@ -18,13 +20,53 @@ import (
 
 func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.TokenUserRepository) *echo.Echo {
 	e := echo.New()
+	// Use the direct connection IP. Behind a reverse proxy all requests would
+	// share the proxy IP; deploying behind a proxy requires an explicit,
+	// trusted-proxy IP extractor configuration (see README).
 	e.IPExtractor = echo.ExtractIPDirect()
 
-	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-		Format: `time=${time_rfc3339} method=${method} path=${path} status=${status} latency=${latency_human} remote_ip=${remote_ip}` + "\n",
+	// RequestLoggerWithConfig replaces the deprecated LoggerWithConfig
+	// (Echo >= v4.16). The custom function preserves the historical
+	// access-log format and stdout destination. URIPath matches the legacy
+	// ${path} tag (req.URL.Path), including unmatched 404 requests, and
+	// excludes the query string so tokens in URLs are never logged.
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogMethod:   true,
+		LogURIPath:  true,
+		LogStatus:   true,
+		LogLatency:  true,
+		LogRemoteIP: true,
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			_, err := fmt.Fprintf(os.Stdout,
+				"time=%s method=%s path=%s status=%d latency=%s remote_ip=%s\n",
+				v.StartTime.Format(time.RFC3339), v.Method, v.URIPath, v.Status, v.Latency, v.RemoteIP)
+			return err
+		},
 	}))
 	e.Use(middleware.Recover())
-	e.Use(middleware.CORS())
+	// Reject oversized request bodies before they are read into memory.
+	e.Use(middleware.BodyLimit("1M"))
+
+	// Cross-origin access is denied by default (same-origin only). It is
+	// granted only to the explicit whitelist in CORS_ALLOWED_ORIGINS.
+	if len(cfg.CORSAllowedOrigins) > 0 {
+		e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins: cfg.CORSAllowedOrigins,
+			AllowMethods: []string{
+				http.MethodGet,
+				http.MethodPost,
+				http.MethodPut,
+				http.MethodDelete,
+				http.MethodOptions,
+			},
+			AllowHeaders: []string{
+				echo.HeaderAuthorization,
+				echo.HeaderContentType,
+			},
+			MaxAge: 600,
+		}))
+	}
+
 	e.Use(middle.MetricsMiddleware)
 
 	// Liveness check: confirms that the application is running.
@@ -88,7 +130,10 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.Token
 	e.POST("/login", h.Login, loginLimiter)
 	e.POST("/refresh", h.RefreshToken, refreshLimiter)
 
-	e.GET("/swagger/*", echoSwagger.WrapHandler)
+	// Swagger is opt-in via ENABLE_SWAGGER; keep it disabled in production.
+	if cfg.EnableSwagger {
+		e.GET("/swagger/*", echoSwagger.WrapHandler)
+	}
 
 	e.GET("/admin/dashboard", h.AdminDashboard,
 		middle.JWTMiddleware(cfg, userRepo),
@@ -100,8 +145,13 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.Token
 		middle.RequireRole("admin"),
 	)
 
+	e.PUT("/admin/demote", h.DemoteAdmin,
+		middle.JWTMiddleware(cfg, userRepo),
+		middle.RequireRole("admin"),
+	)
+
 	e.POST("/forgot-password", h.ForgotPassword, forgotPassLimiter)
-	e.GET("/reset-password", h.ShowResetPasswordPage)
+	e.GET("/reset-password", h.ShowResetPasswordPage, resetPasswordLimiter)
 	e.POST("/reset-password", h.ResetPassword, resetPasswordLimiter)
 
 	auth := e.Group("/auth")
@@ -111,6 +161,7 @@ func NewRouter(h *handler.UserHandler, cfg *config.Config, userRepo middle.Token
 	auth.PUT("/update", h.UpdateUser)
 	auth.DELETE("/delete", h.DeleteUser)
 	auth.POST("/change-password", h.ChangePassword)
+	auth.POST("/logout", h.Logout)
 
 	return e
 

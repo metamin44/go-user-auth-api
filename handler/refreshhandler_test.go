@@ -1,3 +1,5 @@
+//go:build integration
+
 package handler
 
 import (
@@ -115,7 +117,7 @@ func TestRefreshToken(t *testing.T) {
 		rec = httptest.NewRecorder()
 		c = e.NewContext(req, rec)
 
-		h.RefreshToken(c)
+		assert.NoError(t, h.RefreshToken(c))
 
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 
@@ -164,7 +166,7 @@ func TestRefreshToken(t *testing.T) {
 		rec = httptest.NewRecorder()
 		c = e.NewContext(req, rec)
 
-		h.RefreshToken(c)
+		assert.NoError(t, h.RefreshToken(c))
 
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	})
@@ -215,7 +217,7 @@ func TestRefreshToken(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		h.RefreshToken(c)
+		assert.NoError(t, h.RefreshToken(c))
 
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 		assert.Contains(t, rec.Body.String(), "refresh token is invalid, expired, or revoked")
@@ -272,7 +274,7 @@ func TestRefreshToken(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		h.RefreshToken(c)
+		assert.NoError(t, h.RefreshToken(c))
 
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 		assert.Contains(

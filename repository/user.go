@@ -647,3 +647,82 @@ func (r *UserRepo) RotateSession(
 
 	return nil
 }
+
+// RevokeSession marks a session as revoked so its access and refresh tokens
+// stop working immediately. It is idempotent: revoking an already-revoked or
+// missing session is not an error (logout must not leak session state).
+func (r *UserRepo) RevokeSession(userID uint, sessionID string) error {
+	if userID == 0 || sessionID == "" {
+		return errors.New("user ID and session ID are required")
+	}
+
+	now := time.Now()
+
+	result := r.DB.Model(&model.UserSession{}).
+		Where(
+			"user_id = ? AND session_id = ? AND revoked_at IS NULL",
+			userID,
+			sessionID,
+		).
+		Update("revoked_at", &now)
+
+	if result.Error != nil {
+		r.Logger.Error(
+			"Failed to revoke session",
+			zap.Uint("user_id", userID),
+			zap.Error(result.Error),
+		)
+		return result.Error
+	}
+
+	r.Logger.Info("Session revoked", zap.Uint("user_id", userID))
+
+	return nil
+}
+
+// DemoteAdminToUser removes the admin role and revokes existing tokens by
+// bumping the token version, mirroring PromoteUserToAdmin.
+func (r *UserRepo) DemoteAdminToUser(userID uint) error {
+	result := r.DB.Model(&model.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"role":          "user",
+			"token_version": gorm.Expr("token_version + 1"),
+		})
+
+	if result.Error != nil {
+		r.Logger.Error(
+			"Failed to demote admin",
+			zap.Uint("user_id", userID),
+			zap.Error(result.Error),
+		)
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	r.Logger.Info(
+		"Admin demoted to user and existing tokens revoked",
+		zap.Uint("user_id", userID),
+	)
+
+	return nil
+}
+
+// DeleteExpiredSessions removes sessions that are expired or revoked. Both
+// kinds are dead weight: expired sessions fail the expiry check and revoked
+// sessions fail the revocation check, so deleting them does not weaken any
+// security control. Returns the number of deleted rows.
+func (r *UserRepo) DeleteExpiredSessions(ctx context.Context) (int64, error) {
+	result := r.DB.WithContext(ctx).
+		Where("expires_at < ? OR revoked_at IS NOT NULL", time.Now()).
+		Delete(&model.UserSession{})
+
+	if result.Error != nil {
+		return 0, result.Error
+	}
+
+	return result.RowsAffected, nil
+}

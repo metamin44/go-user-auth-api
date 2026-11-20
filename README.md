@@ -162,23 +162,31 @@ Update `.env` with your own configuration.
 
 Important settings include:
 
-| Variable group        | Description                           |
-| --------------------- | ------------------------------------- |
-| `APP_PORT`            | Application listening port            |
-| `DB_*`                | MySQL connection settings             |
-| `MYSQL_ROOT_PASSWORD` | MySQL root password                   |
-| `JWT_SIGN_KEY`        | Access-token signing key              |
-| `JWT_REFRESH_KEY`     | Refresh-token signing key             |
-| `JWT_RESET_KEY`       | Password-reset token signing key      |
-| `EMAIL_*`             | SMTP server and sender configuration  |
-| `ENABLE_EMAIL`        | Enable or disable email delivery      |
-| `ENABLE_LOGS`         | Enable or disable application logging |
-| `RESET_PASSWORD_URL`  | Password-reset page URL               |
-| `RATE_LIMIT_*`        | Rate-limiting configuration           |
-| `GF_SECURITY_*`       | Grafana administrator credentials     |
+| Variable group         | Description                                                        |
+| ---------------------- | ------------------------------------------------------------------ |
+| `APP_PORT`             | Application listening port                                         |
+| `DB_*`                 | MySQL connection settings                                          |
+| `MYSQL_ROOT_PASSWORD`  | MySQL root password                                                |
+| `JWT_SIGN_KEY`         | Access-token signing key (minimum 32 characters)                   |
+| `JWT_REFRESH_KEY`      | Refresh-token signing key (minimum 32 characters)                  |
+| `JWT_RESET_KEY`        | Password-reset token signing key (minimum 32 characters)           |
+| `JWT_ACCESS_TTL`       | Access-token lifetime (default `15m`)                              |
+| `JWT_REFRESH_TTL`      | Refresh-token lifetime (default `168h`)                            |
+| `EMAIL_*`              | SMTP server and sender configuration                               |
+| `ENABLE_EMAIL`         | Enable or disable email delivery                                   |
+| `RESET_PASSWORD_URL`   | Password-reset page URL                                            |
+| `RATE_LIMIT_*`         | Rate-limiting configuration (valid defaults apply when unset)      |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated cross-origin whitelist; empty = same-origin only   |
+| `ENABLE_SWAGGER`       | Serve Swagger UI when `true`; keep disabled in production          |
+| `GF_SECURITY_*`        | Grafana administrator credentials                                  |
 
 Use strong, unique secret values for JWT keys and passwords. Configure
 valid SMTP credentials if you want to enable email delivery.
+
+Configuration is validated at startup: missing database settings, JWT
+keys shorter than 32 characters, invalid TTLs or rate-limit formats, and
+incomplete email configuration (when enabled) abort startup with a clear
+error instead of failing later at runtime.
 
 **Never commit your actual `.env` file or production secrets.** The
 local environment file is excluded through `.gitignore`.
@@ -257,6 +265,7 @@ header.
 | PUT    | `/auth/update`          | Update the user's profile               |
 | DELETE | `/auth/delete`          | Delete the authenticated user's account |
 | POST   | `/auth/change-password` | Change the user's password              |
+| POST   | `/auth/logout`          | Revoke the current session's tokens     |
 
 Example authorization header:
 
@@ -272,6 +281,20 @@ These endpoints require an authenticated administrator.
 | ------ | ------------------ | ------------------------------- |
 | GET    | `/admin/dashboard` | Access the admin dashboard      |
 | PUT    | `/admin/promote`   | Promote a user to administrator |
+| PUT    | `/admin/demote`    | Demote an administrator to user |
+
+Promotion and demotion bump the target user's token version, revoking
+their existing tokens, and are logged with the acting administrator's
+user ID for audit purposes. Admins cannot demote themselves.
+
+**Bootstrapping the first admin:** there is intentionally no public
+registration path to the admin role. Create the first administrator
+directly in the database, then use `/admin/promote` for subsequent ones:
+
+```sql
+UPDATE users SET role = 'admin', token_version = token_version + 1
+WHERE email = 'your-admin@example.com';
+```
 
 ## Password Reset Workflow
 
@@ -401,6 +424,24 @@ The project applies several security practices:
 
 - `.env` is excluded from version control.
 
+- Configuration is validated at startup (fail fast) and JWT keys must
+  be at least 32 characters.
+
+- Access tokens are short-lived (15 minutes by default) and every
+  authenticated request re-checks the token version and session state.
+
+- Login responses take equal time for unknown emails and wrong
+  passwords to prevent user enumeration.
+
+- Cross-origin access is denied unless explicitly whitelisted through
+  `CORS_ALLOWED_ORIGINS`; request bodies are limited to 1 MB.
+
+- Users can revoke their own session through `/auth/logout`; expired
+  and revoked sessions are cleaned up periodically.
+
+- The container image is multi-stage, runs as a non-root user, and
+  contains no source code, toolchain, or secrets.
+
 This project is an educational and portfolio backend implementation.
 
 A production deployment should also include:
@@ -480,24 +521,29 @@ logs/app.log
 
 ## Running Tests
 
-The test suite includes handler, middleware, repository, and validation
-tests.
+Tests are split into two groups:
 
-**Database prerequisite:** Handler and repository tests connect to
-MySQL. The handler test setup loads `.env` from the project root and
-connects to the database at `127.0.0.1:3320`.
+- **Unit tests** (config, middleware, tokenutil, validation) run without
+  any external dependency.
+- **Integration tests** (handler, repository) are guarded by the
+  `integration` build tag and connect to MySQL at `127.0.0.1:3320`,
+  loading `.env` from the project root.
 
-First, make sure `.env` is configured and start the database:
-
-```bash
-docker compose up -d db
-```
-
-Then, from the project root, run:
+Run unit tests only:
 
 ```bash
 go test -count=1 ./...
 ```
+
+Start the database and run everything, including integration tests:
+
+```bash
+docker compose up -d db
+go test -p 1 -count=1 -tags=integration ./...
+```
+
+`-p 1` runs package test binaries sequentially because integration
+tests share one database. CI runs the same command with `-race`.
 
 Run static analysis:
 
@@ -514,9 +560,9 @@ go build ./...
 Run an individual package's tests:
 
 ```bash
-go test -count=1 ./handler -v
+go test -count=1 -tags=integration ./handler -v
 go test -count=1 ./middleware -v
-go test -count=1 ./repository -v
+go test -count=1 -tags=integration ./repository -v
 go test -count=1 ./validationuser -v
 ```
 

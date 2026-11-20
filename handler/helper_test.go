@@ -1,3 +1,5 @@
+//go:build integration
+
 package handler
 
 import (
@@ -14,7 +16,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func insertKnownUser(handler *UserHandler) {
+func insertKnownUser(t *testing.T, handler *UserHandler) {
+	t.Helper()
 
 	db := handler.Repo.DB
 
@@ -22,15 +25,20 @@ func insertKnownUser(handler *UserHandler) {
 	db.Where("email = ?", "newuser@example.com").Delete(&model.User{})
 	db.Where("phone = ?", "09123456789").Delete(&model.User{})
 
-	hash, _ := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("failed to hash test password: %v", err)
+	}
 
-	_ = handler.Repo.CreateUser(&model.User{
+	if err := handler.Repo.CreateUser(&model.User{
 		ID:       1,
 		Name:     "Test User",
 		Email:    "testuser@example.com",
 		Phone:    "09123456789",
 		Password: string(hash),
-	})
+	}); err != nil {
+		t.Fatalf("failed to insert known test user: %v", err)
+	}
 }
 
 func setup(t *testing.T) (*echo.Echo, *UserHandler) {
@@ -45,7 +53,10 @@ func setup(t *testing.T) (*echo.Echo, *UserHandler) {
 	}
 
 	// Load config
-	cfg := config.LoadConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
 	// Tests run on the host machine, not inside Docker.
 	cfg.Database.Host = "127.0.0.1"
 	cfg.Database.Port = "3320"
@@ -66,7 +77,7 @@ func setup(t *testing.T) (*echo.Echo, *UserHandler) {
 	handler := NewUserHandler(repo, cfg, logger)
 
 	// Insert known user before tests
-	insertKnownUser(handler)
+	insertKnownUser(t, handler)
 
 	e := echo.New()
 	return e, handler

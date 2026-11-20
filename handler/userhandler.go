@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"reg/config"
@@ -14,6 +15,7 @@ import (
 	"reg/tokenutil"
 	"reg/validationuser"
 	"strings"
+	"sync"
 
 	"time"
 
@@ -48,6 +50,21 @@ func hashResetToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(hash[:])
 }
+
+// dummyPasswordHash is compared against when a login email is unknown, so the
+// response takes the same time as a wrong-password attempt. Without this,
+// attackers can enumerate registered emails by timing the response.
+var dummyPasswordHash = sync.OnceValue(func() []byte {
+	hash, err := bcrypt.GenerateFromPassword(
+		[]byte("dummy-password-for-login-timing-equalization"),
+		bcrypt.DefaultCost,
+	)
+	if err != nil {
+		// Only possible on invalid cost or >72-byte input; both are fixed here.
+		panic(fmt.Sprintf("failed to generate dummy password hash: %v", err))
+	}
+	return hash
+})
 
 func passwordResetResponse(c echo.Context) error {
 	return c.JSON(http.StatusOK, echo.Map{
@@ -208,6 +225,10 @@ func (h *UserHandler) Login(c echo.Context) error {
 		})
 	}
 
+	// Normalize exactly like Register so lookups are consistent regardless of
+	// database collation.
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+
 	if err := validationuser.ValidateEmail(req.Email); err != nil {
 		h.Logger.Warn("Invalid email", zap.Error(err))
 		return c.JSON(http.StatusBadRequest, model.APIResponse{
@@ -227,6 +248,10 @@ func (h *UserHandler) Login(c echo.Context) error {
 	user, err := h.Repo.GetUserByEmail(req.Email)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Burn the same bcrypt cost as a real password check to prevent
+			// user enumeration through response timing.
+			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash(), []byte(req.Password))
+
 			h.Logger.Warn("User not found during login",
 				zap.String("email", req.Email),
 			)
@@ -740,8 +765,13 @@ func (h *UserHandler) ChangePassword(c echo.Context) error {
 
 	user, err := h.Repo.GetUserByID(userID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			h.Logger.Warn("User not found during password change", zap.Uint("user_id", userID))
+			return c.JSON(http.StatusNotFound, echo.Map{"error": "user not found"})
+		}
+
 		h.Logger.Error("Failed to fetch user for password change", zap.Uint("user_id", userID), zap.Error(err))
-		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "user not found"})
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "could not fetch user"})
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.OldPassword)); err != nil {
@@ -824,7 +854,7 @@ func (h *UserHandler) ForgotPassword(c echo.Context) error {
 		return passwordResetResponse(c)
 	}
 	hashedToken := hashResetToken(signedToken)
-	expiresAt := time.Now().Add(15 * time.Minute)
+	expiresAt := time.Now().Add(tokenutil.ResetTokenTTL)
 
 	if err := h.Repo.SavePasswordResetToken(
 		user.ID,
@@ -1030,6 +1060,9 @@ func (h *UserHandler) AdminDashboard(c echo.Context) error {
 // @Failure 500 {object} map[string]string "internal server error"
 // @Router /admin/promote [put]
 func (h *UserHandler) PromoteToAdmin(c echo.Context) error {
+	// Acting admin, recorded for audit purposes.
+	actorID, _ := c.Get("user_id").(uint)
+
 	type requestBody struct {
 		UserID uint `json:"user_id"`
 	}
@@ -1068,9 +1101,106 @@ func (h *UserHandler) PromoteToAdmin(c echo.Context) error {
 	h.Logger.Info("User promoted to admin successfully",
 		zap.Uint("user_id", user.ID),
 		zap.String("email", user.Email),
+		zap.Uint("acted_by_user_id", actorID),
 	)
 
 	return c.JSON(http.StatusOK, echo.Map{"message": "user promoted to admin successfully"})
+}
+
+// DemoteAdmin godoc
+// @Summary Demote an admin to user
+// @Description Admins can remove the admin role from another admin. Existing tokens of the demoted user are revoked.
+// @Tags Admin
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body request.PromoteUserRequest true "User ID payload"
+// @Success 200 {object} map[string]string "admin demoted to user successfully"
+// @Failure 400 {object} map[string]string "invalid request or self-demotion"
+// @Failure 403 {object} map[string]string "access denied"
+// @Failure 404 {object} map[string]string "user not found"
+// @Failure 500 {object} map[string]string "internal server error"
+// @Router /admin/demote [put]
+func (h *UserHandler) DemoteAdmin(c echo.Context) error {
+	actorID, ok := c.Get("user_id").(uint)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, echo.Map{"error": "unauthorized"})
+	}
+
+	type requestBody struct {
+		UserID uint `json:"user_id"`
+	}
+
+	var req requestBody
+	if err := c.Bind(&req); err != nil || req.UserID == 0 {
+		h.Logger.Warn("Invalid demote-admin request", zap.Uint("user_id", req.UserID), zap.Error(err))
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request"})
+	}
+
+	// Prevent admins from locking themselves out of the admin panel.
+	if req.UserID == actorID {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "cannot demote yourself"})
+	}
+
+	user, err := h.Repo.GetUserByID(req.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.JSON(http.StatusNotFound, echo.Map{"error": "user not found"})
+		}
+
+		h.Logger.Error("Failed to retrieve user for demotion",
+			zap.Uint("user_id", req.UserID),
+			zap.Error(err),
+		)
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "internal server error"})
+	}
+
+	if user.Role != "admin" {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "user is not an admin"})
+	}
+
+	if err := h.Repo.DemoteAdminToUser(req.UserID); err != nil {
+		h.Logger.Error("Failed to demote admin", zap.Uint("user_id", req.UserID), zap.Error(err))
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to demote admin"})
+	}
+
+	h.Logger.Info("Admin demoted to user successfully",
+		zap.Uint("user_id", user.ID),
+		zap.Uint("acted_by_user_id", actorID),
+	)
+
+	return c.JSON(http.StatusOK, echo.Map{"message": "admin demoted to user successfully"})
+}
+
+// Logout godoc
+// @Summary Log out the current session
+// @Description Revokes the session bound to the presented access token. Its access and refresh tokens stop working immediately.
+// @Tags User
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]string "logged out"
+// @Failure 401 {object} map[string]string "unauthorized"
+// @Failure 500 {object} map[string]string "internal error"
+// @Router /auth/logout [post]
+func (h *UserHandler) Logout(c echo.Context) error {
+	userID, ok := c.Get("user_id").(uint)
+	sessionID, sessionOK := c.Get("session_id").(string)
+	if !ok || !sessionOK || sessionID == "" {
+		h.Logger.Warn("Unauthorized logout attempt: missing user_id or session_id in context")
+		return c.JSON(http.StatusUnauthorized, echo.Map{"error": "unauthorized"})
+	}
+
+	if err := h.Repo.RevokeSession(userID, sessionID); err != nil {
+		h.Logger.Error("Failed to revoke session on logout",
+			zap.Uint("user_id", userID),
+			zap.Error(err),
+		)
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to log out"})
+	}
+
+	h.Logger.Info("User logged out", zap.Uint("user_id", userID))
+
+	return c.JSON(http.StatusOK, echo.Map{"message": "logged out"})
 }
 func (h *UserHandler) ShowResetPasswordPage(c echo.Context) error {
 	token := c.QueryParam("token")

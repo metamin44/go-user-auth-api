@@ -37,12 +37,11 @@ jobs:
       DB_PORT: "3320"
       DB_NAME: userdb
 
-      JWT_SIGN_KEY: test-signing-key-for-ci-only
-      JWT_REFRESH_KEY: test-refresh-key-for-ci-only
-      JWT_RESET_KEY: test-reset-key-for-ci-only
+      JWT_SIGN_KEY: test-signing-key-for-ci-only-0123456789abcdef
+      JWT_REFRESH_KEY: test-refresh-key-for-ci-only-0123456789abcdef
+      JWT_RESET_KEY: test-reset-key-for-ci-only-0123456789abcdef
 
       ENABLE_EMAIL: "false"
-      ENABLE_LOGS: "false"
       RUN_MIGRATION: "true"
 
     steps:
@@ -66,8 +65,8 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
-      - name: Run tests
-        run: go test -p 1 -race -count=1 ./...
+      - name: Run tests (unit + integration against MySQL service)
+        run: go test -p 1 -race -count=1 -tags=integration ./...
 
       - name: Build
         run: go build ./...

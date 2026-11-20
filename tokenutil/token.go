@@ -18,6 +18,10 @@ const (
 	TokenTypeReset   = "reset"
 
 	TokenIssuer = "go-user-auth-api"
+
+	// ResetTokenTTL is the single source of truth for password-reset token
+	// lifetime, shared by token generation and the database expiry check.
+	ResetTokenTTL = 15 * time.Minute
 )
 
 // ParsePositiveIntegerClaim safely parses a positive integer JWT claim.
@@ -123,7 +127,7 @@ func GenerateResetToken(email string, cfg *config.Config) (string, error) {
 		"",
 		TokenTypeReset,
 		cfg.JWT.ResetKey,
-		15*time.Minute,
+		ResetTokenTTL,
 	)
 }
 

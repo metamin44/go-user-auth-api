@@ -1,3 +1,5 @@
+//go:build integration
+
 package repository
 
 import (
@@ -26,7 +28,10 @@ func setupRepositoryTest(t *testing.T) (*UserRepo, uint) {
 		}
 	}
 
-	cfg := config.LoadConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
 	cfg.Database.Host = "127.0.0.1"
 	cfg.Database.Port = "3320"
 

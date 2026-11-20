@@ -22,7 +22,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8085:8082"
+      - "127.0.0.1:8085:8082"
     depends_on:
       db:
         condition: service_healthy
@@ -48,7 +48,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8086:8082"
+      - "127.0.0.1:8086:8082"
     depends_on:
       db:
         condition: service_healthy

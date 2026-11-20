@@ -18,7 +18,6 @@ import (
 	"reg/repository"
 	"reg/router"
 
-	_ "net/http/pprof"
 	_ "reg/docs"
 
 	"github.com/joho/godotenv"
@@ -65,7 +64,10 @@ func run() error {
 		log.Println("warning: No .env file found, using system environment variables.")
 	}
 
-	cfg := config.LoadConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
 
 	repo, err := repository.NewUserRepo(cfg)
 	if err != nil {
@@ -82,6 +84,12 @@ func run() error {
 
 	userHandler := handler.NewUserHandler(repo, cfg, logger.Log)
 	e := router.NewRouter(userHandler, cfg, repo)
+
+	// Periodically remove expired/revoked sessions so the table does not grow
+	// without bound. Stopped before the database connection is closed.
+	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
+	defer stopCleanup()
+	go runSessionCleanup(cleanupCtx, repo)
 
 	serverErr := make(chan error, 1)
 
@@ -123,5 +131,30 @@ func run() error {
 
 		logger.Log.Info("Application stopped gracefully")
 		return nil
+	}
+}
+
+// runSessionCleanup deletes expired and revoked sessions immediately and then
+// once per hour until the context is cancelled.
+func runSessionCleanup(ctx context.Context, repo *repository.UserRepo) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for {
+		deleted, err := repo.DeleteExpiredSessions(ctx)
+		switch {
+		case ctx.Err() != nil:
+			return
+		case err != nil:
+			logger.Log.Error("Session cleanup failed", zap.Error(err))
+		case deleted > 0:
+			logger.Log.Info("Expired sessions cleaned up", zap.Int64("count", deleted))
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
